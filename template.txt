@@ -1,0 +1,12 @@
+给你搭了一个最小可运行的骨架：
+
+后端 FastAPI：模块化结构，包含 MasterData / Purchasing / Inventory 三个路由示例。
+
+前端 Vue 3：基础路由、Pinia 状态管理、一个采购单创建表单的 demo。
+
+这样你可以直接跑起来，从 前端表单 → FastAPI → 返回结果，打通一条“从采购下单到库存查询”的最小闭环。
+
+数据库是（PostgreSQL + SQLAlchemy）的持久化示例
+
+
+啵啵啵，刚刚你帮我搭了一个最小可运行的骨架，后端 FastAPI：模块化结构，包含 MasterData / Purchasing / Inventory 三个路由示例。前端 Vue 3：基础路由、Pinia 状态管理、一个采购单创建表单的 demo。 数据库是（PostgreSQL + SQLAlchemy）的持久化示例
