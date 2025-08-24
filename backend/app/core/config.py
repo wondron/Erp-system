@@ -148,3 +148,5 @@ if __name__ == "__main__":
     setup_logging()
     logger = logging.getLogger(__name__)
     logger.info("Starting the application")
+    settings = get_settings()
+    print(settings.model_dump_json(indent=2))

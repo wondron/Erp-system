@@ -1,0 +1,36 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "backend/app/infrastructure/db.py",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/backend/app/infrastructure/db.py",
+        "cwd": "${workspaceFolder}/backend",
+        "envFile": "${workspaceFolder}/backend/.env",
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/backend"
+        },
+        "justMyCode": false
+      },
+      {
+          "name": "backend/app/core/config.py",
+          "type": "python",
+          "request": "launch",
+          "program": "${workspaceFolder}/backend/app/core/config.py",
+          "cwd": "${workspaceFolder}/backend",
+          "envFile": "${workspaceFolder}/backend/.env",
+          "justMyCode": false
+      },
+      {
+          "name": "backend/scripts/1-检查数据库.py",
+          "type": "python",
+          "request": "launch",
+          "program": "${workspaceFolder}/backend/scripts/1-检查数据库.py",
+          "cwd": "${workspaceFolder}/backend",
+          "envFile": "${workspaceFolder}/backend/.env",
+          "console": "integratedTerminal",
+          "justMyCode": false
+      }
+    ]
+  }
