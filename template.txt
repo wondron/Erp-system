@@ -1,6 +1,4 @@
-啵啵啵，刚刚你帮我搭了一个最小可运行的骨架，后端 FastAPI：模块化结构，包含 
-MasterData / Purchasing / Inventory 三个路由示例。前端 Vue 3：基础路由、Pinia 状态
-管理、一个采购单创建表单的 demo。 数据库是（PostgreSQL + SQLAlchemy）的持久化示例
+啵啵啵，刚刚你帮我搭了一个最小可运行的骨架，后端 FastAPI：模块化结构，包含MasterData / Purchasing / Inventory 三个路由示例。前端 Vue 3：基础路由、Pinia 状态管理、一个采购单创建表单的 demo。 数据库是（PostgreSQL + SQLAlchemy）的持久化示例
 
 
 1. schema 的基本概念

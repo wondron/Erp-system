@@ -1,39 +1,18 @@
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Numeric, func
+# 不依赖 ORM
+from dataclasses import dataclass
+from datetime import datetime
 
 
-class Base(DeclarativeBase):
-    pass
+# @dataclass 是 Python 的一个装饰器，用于自动生成类的特殊方法（如 __init__, __repr__, __eq__ 等）。
+# slots=True 参数会让类使用 __slots__ 来优化内存使用，避免创建实例字典，从而减少内存占用，提高属性访问速度。
 
+@dataclass(slots=True)
+class User:
+    id: int | None
+    first_name: str
+    last_name: str
+    created_at: datetime | None = None
 
-class Item(Base):
-    __tablename__ = "items"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    sku: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    name: Mapped[str] = mapped_column(String(255))
-    uom: Mapped[str] = mapped_column(String(16))
-    created_at: Mapped["datetime"] = mapped_column(DateTime, server_default=func.now())
-
-
-class Supplier(Base):
-    __tablename__ = "suppliers"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), unique=True)
-
-
-class PurchaseOrder(Base):
-    __tablename__ = "purchase_orders"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
-    status: Mapped[str] = mapped_column(String(32), default="CREATED")
-    lines: Mapped[list["PurchaseOrderLine"]] = relationship(back_populates="po", cascade="all, delete-orphan")
-
-
-class PurchaseOrderLine(Base):
-    __tablename__ = "purchase_order_lines"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    po_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"))
-    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"))
-    qty: Mapped[float]
-    price: Mapped[Numeric] = mapped_column(Numeric(18, 4))
-    po: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+    @property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}"

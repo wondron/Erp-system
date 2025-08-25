@@ -8,11 +8,18 @@ from typing import Generator, Iterator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import QueuePool
-
+from dataclasses import dataclass
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+@dataclass
+class User:
+    id: int | None
+    first_name: str
+    last_name: str
 
 
 # ---------- Declarative Base ----------
@@ -25,7 +32,7 @@ class Base(DeclarativeBase):
     """
     pass
 
-print("sqlalchemy_database_uri: ", settings.sqlalchemy_database_uri)
+logger.info("sqlalchemy_database_uri: %s", settings.sqlalchemy_database_uri)
 
 # ---------- Engine ----------
 # 说明：
@@ -77,6 +84,7 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+        db.commit()
     except Exception:
         db.rollback()
         logger.exception("DB session rolled back due to an exception.")

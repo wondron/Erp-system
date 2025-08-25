@@ -31,6 +31,19 @@
           "envFile": "${workspaceFolder}/backend/.env",
           "console": "integratedTerminal",
           "justMyCode": false
+      },
+      {
+          "name": "backend/scripts/2-testAlembic.py",
+          "type": "python",
+          "request": "launch",
+          "program": "${workspaceFolder}/backend/scripts/2-testAlembic.py",
+          "cwd": "${workspaceFolder}/backend",
+          "env": {
+            "PYTHONPATH": "${workspaceFolder}/backend"
+          },
+          "envFile": "${workspaceFolder}/backend/.env",
+          "console": "integratedTerminal",
+          "justMyCode": false
       }
     ]
   }

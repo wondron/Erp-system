@@ -23,7 +23,7 @@ def generate_project_structure(
     if exclude is None:
         # 默认排除常见的不需要的文件和目录
         exclude = {
-            '__pycache__', '.git', '.svn', '.hg', '.idea', '.vscode',
+            '__pycache__', '.git', '.svn', '.hg', '.idea', '.vscode', '.md', '.txt',
             'venv', 'env', 'node_modules', '.DS_Store', 'dist', 'build', '展示层级.py',
             '.gitignore', '.gitattributes', '.env', '.env.local', 'explain.txt'
         }
@@ -94,8 +94,9 @@ def main():
     # 处理排除列表
     exclude = {
         '__pycache__', '.git', '.svn', '.hg', '.idea', '.vscode',
-        'venv', 'env', 'node_modules', '.DS_Store', 'dist', 'build',
-        '.gitignore', '.gitattributes', '.env', '.env.local', '展示层级.py'
+        'venv', 'env', 'node_modules', '.DS_Store', 'dist', 'build', '.md', '.txt'
+        '.gitignore', '.gitattributes', '.env', '.env.local', '展示层级.py','template.txt',
+        'explain.md', 'explain.txt'
     }
     
     if args.exclude:
