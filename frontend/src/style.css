@@ -1,0 +1,74 @@
+/* ===== 主题变量（可按品牌色修改） ===== */
+:root{
+  --text:#0f172a;          /* 主文字 */
+  --muted:#64748b;         /* 次级文字 */
+  --primary:#4f46e5;       /* 主色 */
+  --primary-soft:#eef2ff;  /* 主色浅背景 */
+  --ring:#c7d2fe;          /* 聚焦描边 */
+  --card:#ffffff;
+  --line:#e5e7eb;
+  --danger:#ef4444;
+}
+*{box-sizing:border-box}
+html,body,#app{height:100%}
+body{
+  margin:0; color:var(--text);
+  font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+}
+
+/* 容器标题 */
+.page-title{font-size:26px;font-weight:800;letter-spacing:.2px;margin:0 0 6px}
+.subtle{color:var(--muted)}
+
+/* 卡片化分区（Users.vue 内部也用到） */
+.card{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:18px;
+  margin:16px 0;
+  box-shadow:0 8px 24px rgba(0,0,0,.04);
+}
+
+/* 表单与按钮 */
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.input{
+  flex:1; min-width:220px; height:40px;
+  padding:8px 12px; border:1px solid var(--line); border-radius:10px; background:#fff;
+  outline:0; transition:.2s;
+}
+.input:focus{border-color:var(--primary); box-shadow:0 0 0 4px var(--ring)}
+.btn{
+  height:40px; padding:0 14px; border-radius:10px; border:1px solid transparent;
+  background:var(--primary); color:#fff; font-weight:700; cursor:pointer;
+  transition:transform .05s ease, box-shadow .2s ease, filter .2s ease;
+}
+.btn:hover{filter:brightness(1.03); box-shadow:0 10px 20px rgba(79,70,229,.25)}
+.btn:active{transform:translateY(1px)}
+.btn.ghost{background:#fff; color:var(--primary); border-color:var(--primary)}
+.btn.danger{background:var(--danger)}
+
+/* 列表与状态 */
+.list{display:grid;gap:10px; margin:10px 0 0; padding:0; list-style:none}
+.item{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:#fff;
+}
+.item .id{color:var(--muted); font-weight:700}
+.item .name{font-weight:800}
+.meta{color:var(--muted); font-size:13px; margin:8px 0 2px}
+.hint{color:var(--muted); font-style:italic; padding:4px 0}
+.empty{
+  display:flex; align-items:center; gap:10px; color:var(--muted); font-size:14px; background:#fff;
+  border:1px dashed var(--line); padding:14px; border-radius:12px;
+}
+.error{
+  color:#b91c1c; background:#fee2e2; border:1px solid #fecaca;
+  padding:10px 12px; border-radius:12px; margin-top:10px;
+}
+
+/* 滚动条美化（可选） */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#dbeafe;border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:#c7d2fe}

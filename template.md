@@ -30,6 +30,11 @@ CREATE DATABASE erp;
 erp=# \i 'D:/python/Erp-system/backend/app/infrastructure/init_in_db.sql'  数据库内初始化。
 
 
+## 启动fastapi服务
+cd backend
+uvicorn app.main:app --reload
+
+
 
 ## 检查数据库
 pg_ctl start    #后续如果后台启动了就不用这样了
@@ -39,3 +44,24 @@ set DATABASE_URL=postgresql+psycopg://postgres:123456@localhost:5433/erp   #代�
 python scripts/inspect_db.py
 
 
+## 前端代码生成
+1.  创建一个新项目，会生成一个fronted文件夹
+npm create vite@latest frontend
+
+2. 选择 vue 和 TypeScript(ts文件)
+
+  cd frontend
+  npm install
+  npm run dev
+
+3. 安装依赖项
+npm install vue-router pinia axios
+
+4. 在 frontend 执行这样 VS Code / TS 就知道 path 是 Node 内置模块了。
+npm install -D @types/node
+
+## 启动开发服务器
+```bash
+cd D:\01-code\Erp-system\frontend
+npm run dev
+```

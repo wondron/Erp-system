@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,                 // ★ 必须：被 references 的子项目要开启
+    "target": "ES2020",
+    "module": "ESNext",                // ★ 支持 import.meta
+    "moduleResolution": "Bundler",     // ★ TS 5 推荐与 Vite 搭配
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM"],
+    "jsx": "preserve",
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}
