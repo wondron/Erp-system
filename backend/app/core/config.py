@@ -31,6 +31,7 @@ class Settings(BaseSettings):
 
     # ---- Database (PostgreSQL + SQLAlchemy) ----
     # Preferred: full DSN via DATABASE_URL (e.g., postgresql+psycopg://user:pass@host:5432/db)
+    DB_CREATE_ALL: bool = False
     DATABASE_URL: Optional[AnyUrl] = None
 
     # ---- Security ----
