@@ -9,7 +9,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 
-from app.core.config import get_settings, setup_logging
+from app.core.config import get_settings
+from app.core.loggers import setup_logging
 from app.adapters.http.routes import api_router
 from app.infrastructure.db import init_db, dispose_engine  # 关停时释放连接
 

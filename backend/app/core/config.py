@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from logging.config import dictConfig
 from typing import List, Optional
 from pydantic import AnyUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger('core.config')
 
 class Settings(BaseSettings):
     # ---- Meta ----
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # Preferred: full DSN via DATABASE_URL (e.g., postgresql+asyncpg://user:pass@host:5432/db)
     DB_CREATE_ALL: bool = False
     DATABASE_URL: Optional[AnyUrl] = None
-
+    DATABASE_URL_QIANYI: Optional[AnyUrl] = None 
     # ---- Security ----
     SECRET_KEY: str = "change-me-in-.env"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24h
@@ -62,6 +62,7 @@ class Settings(BaseSettings):
         case_sensitive=True,  # 区分大小写
         extra="ignore",       # 忽略未定义的配置项
     )
+    logger.info('sql url: %s', DATABASE_URL)
 
     @property
     def sqlalchemy_database_uri(self) -> str:
@@ -92,80 +93,6 @@ def get_settings() -> Settings:
     """
     return Settings()
 
-_LOGGING_CONFIGURED = False
-
-def setup_logging(level: Optional[str] = None, json_mode: Optional[bool] = None, *, force: bool = False) -> None:
-    """
-    全局初始化日志。多次调用也不会重复添加 handler。
-    - level/json_mode 可覆盖 settings
-    - force=True 时强制重新配置（会先移除旧 handlers）
-    """
-    global _LOGGING_CONFIGURED
-    settings = get_settings()
-
-    # 已配置且不强制时直接返回（避免重复 handler）
-    if _LOGGING_CONFIGURED and not force:
-        return
-
-    # 解析级别 / 输出格式
-    lvl = (level or settings.LOG_LEVEL).upper()
-    use_json = settings.LOG_JSON if json_mode is None else bool(json_mode)
-
-    if use_json:
-        fmt = (
-            '{"time":"%(asctime)s","level":"%(levelname)s","name":"%(name)s",'
-            '"message":"%(message)s","module":"%(module)s","func":"%(funcName)s","line":%(lineno)d}'
-        )
-        datefmt = "%Y-%m-%dT%H:%M:%S"
-    else:
-        fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-        datefmt = "%Y-%m-%dT%H:%M:%S"
-
-    # —— 关键：清理现有 root handlers，避免重复输出 ——
-    root = logging.getLogger()
-    for h in list(root.handlers):
-        root.removeHandler(h)
-
-    config = {
-        "version": 1,
-        "disable_existing_loggers": False,  # 不强行禁掉已存在的 logger（如 uvicorn/sqlalchemy）
-        "formatters": {
-            "default": {"format": fmt, "datefmt": datefmt}
-        },
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-                "formatter": "default",
-                "stream": "ext://sys.stdout",   # 明确到 stdout
-            },
-        },
-        "root": {
-            "level": lvl,
-            "handlers": ["console"],
-        },
-        "loggers": {
-            # 细化第三方库日志，防止重复与噪声
-            "uvicorn": {"level": lvl, "handlers": [], "propagate": True},
-            "uvicorn.error": {"level": lvl, "handlers": [], "propagate": True},
-            # access 日志默认有独立 handler；把它的 propagate 关掉，避免再冒泡到 root 产生重复
-            "uvicorn.access": {"level": lvl, "handlers": [], "propagate": False},
-            # SQLAlchemy 建议用 'sqlalchemy.engine'
-            "sqlalchemy.engine": {
-                "level": "DEBUG" if settings.SQLALCHEMY_ECHO else "INFO",
-                "handlers": [],
-                "propagate": True,
-            },
-        },
-    }
-
-    dictConfig(config)
-
-    # 标记为已配置
-    _LOGGING_CONFIGURED = True
-
-    logging.getLogger(__name__).debug(
-        "Logging configured", extra={"level": lvl, "json": use_json}
-    )
 
 if __name__ == "__main__":
     #cd 到backend 目录下运行
@@ -173,7 +100,6 @@ if __name__ == "__main__":
     # print(settings.model_dump_json(indent=2))
 
     #setup_logging()在main.py中调用一次就行， 后面的两句哪里用哪里调用
-    setup_logging()
     logger = logging.getLogger(__name__)
     logger.info("Starting the application")
     settings = get_settings()

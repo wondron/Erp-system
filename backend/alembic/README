@@ -1,1 +1,7 @@
 Generic single-database configuration.
+
+
+cd backend
+set ALEMBIC_DATABASE_URL=postgresql://postgres:123456@localhost:5433/erp
+alembic revision -m "add created_at to logins" --autogenerate
+alembic upgrade head
