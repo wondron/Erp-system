@@ -2,20 +2,24 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from typing import Iterable, Generator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 
-from app.core.config import get_settings
+from app.core.config import get_settings, setup_logging
 from app.adapters.http.routes import api_router
-from app.infrastructure.db import init_db, dispose_engine  # 关停时顺便释放连接
+from app.infrastructure.db import init_db, dispose_engine  # 关停时释放连接
 
-logger = logging.getLogger("uvicorn")
+# ---- logging & settings ----
+setup_logging()
+logger = logging.getLogger("erp.app")
 settings = get_settings()
 
+
+# ---------- helpers ----------
 def _fmt(v: Iterable | str | None) -> str:
     if v is None:
         return "-"
@@ -24,23 +28,35 @@ def _fmt(v: Iterable | str | None) -> str:
     return str(v)
 
 def _log_routes(app: FastAPI) -> None:
-    routes = [r for r in app.routes if isinstance(r, APIRoute)]
+    routes: list[APIRoute] = [r for r in app.routes if isinstance(r, APIRoute)]
+    # 按方法+路径排序，更易读
+    def _key(r: APIRoute) -> tuple[str, str]:
+        methods = sorted(m for m in r.methods if m not in {"HEAD", "OPTIONS"})
+        first = methods[0] if methods else ""
+        return (first, r.path)
+
+    routes.sort(key=_key)
+
     logger.info("---- Mounted Routes ---- (%d total)", len(routes))
     for r in routes:
         methods = ",".join(sorted(m for m in r.methods if m not in {"HEAD", "OPTIONS"}))
         endpoint = f"{r.endpoint.__module__}.{r.endpoint.__name__}"
         tags = ",".join(r.tags or [])
-        logger.info("%-10s %-35s tags=[%s] name=%s -> %s",
-                    methods, r.path, tags, r.name, endpoint)
+        logger.info(
+            "%-10s %-35s tags=[%s] name=%s -> %s",
+            methods, r.path, tags, r.name, endpoint
+        )
 
+
+# ---------- lifespan ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ---- startup ----
     create_all = bool(getattr(settings, "DB_CREATE_ALL", False))  # .env: DB_CREATE_ALL=true（仅开发）
     if create_all:
         try:
-            init_db(create_all=True)
-            logger.warning("DB init: Base.metadata.create_all() executed (dev only).")
+            await init_db(create_all=True)
+            logger.warning("数据库使用create_all创建表格,仅能在dev环境下使用.")
         except Exception:
             logger.exception("DB init failed")
 
@@ -53,17 +69,21 @@ async def lifespan(app: FastAPI):
         _fmt(settings.ALLOWED_HEADERS),
         allow_credentials_effective,
     )
+
+    # 注：此时路由已 include 到 app，打印无遗漏
     _log_routes(app)
 
     yield
 
     # ---- shutdown ----
     try:
-        dispose_engine()
+        await dispose_engine()
+        logger.info("DB engine disposed")
     except Exception:
         logger.exception("dispose_engine failed")
 
-# 创建应用并挂载中间件/路由
+
+# ---------- app & middleware ----------
 app = FastAPI(title="ERP System", lifespan=lifespan)
 
 # CORS（* 时浏览器规范不允许带凭证）
@@ -76,4 +96,11 @@ app.add_middleware(
     allow_headers=settings.ALLOWED_HEADERS,
 )
 
+# ---------- routes ----------
 app.include_router(api_router)
+
+
+# ---------- health ----------
+@app.get("/", tags=["Health"])
+def root() -> dict[str, str]:
+    return {"msg": "ERP backend is running"}

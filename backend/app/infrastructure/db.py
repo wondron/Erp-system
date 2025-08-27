@@ -1,26 +1,24 @@
-# backend/app/infrastructure/db.py
 from __future__ import annotations
 
-import contextlib
 import logging
-from typing import Generator, Iterator
+from typing import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
-from sqlalchemy.pool import QueuePool
-from dataclasses import dataclass
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    async_sessionmaker,
+    AsyncSession,
+    AsyncEngine,
+)
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import text
+
 from app.core.config import get_settings
 
-logger = logging.getLogger(__name__)
+
+
+logger = logging.getLogger('infrastructure.db')
 settings = get_settings()
-
-
-@dataclass
-class User:
-    id: int | None
-    first_name: str
-    last_name: str
-
 
 # ---------- Declarative Base ----------
 class Base(DeclarativeBase):
@@ -34,17 +32,22 @@ class Base(DeclarativeBase):
 
 logger.info("sqlalchemy_database_uri: %s", settings.sqlalchemy_database_uri)
 
-# ---------- Engine ----------
+# ⚠️ IMPORTANT:
+# settings.sqlalchemy_database_uri 必须使用异步驱动，例如：
+# - Postgres:  postgresql+asyncpg://user:pass@host:5432/dbname
+
+
+# ----------异步 Engine ----------
 # 说明：
 # - 使用 QueuePool（默认）并将大小、溢出、pre_ping、echo 等与 settings 对齐
 # - 采用 2.0 行为（future=True），避免旧 API 混用
-engine = create_engine(
+engine: AsyncEngine = create_async_engine(
     settings.sqlalchemy_database_uri,
     echo=settings.SQLALCHEMY_ECHO,
-    poolclass=QueuePool,
-    pool_size=settings.SQLALCHEMY_POOL_SIZE,
-    max_overflow=settings.SQLALCHEMY_MAX_OVERFLOW,
-    pool_pre_ping=settings.SQLALCHEMY_POOL_PREPING,  # 预检测连接可用性，避免掉线
+    pool_pre_ping=getattr(settings, "SQLALCHEMY_POOL_PREPING", True),
+    # 对于某些 async 驱动（如 aiosqlite）不支持 pool_size/max_overflow，可按需删除
+    pool_size=getattr(settings, "SQLALCHEMY_POOL_SIZE", 5),
+    max_overflow=getattr(settings, "SQLALCHEMY_MAX_OVERFLOW", 10),
     future=True,
 )
 
@@ -57,40 +60,61 @@ engine = create_engine(
 # autocommit=False：不自动提交，要手动 commit。
 # autoflush=False：避免过早 flush。
 
-SessionLocal = sessionmaker(
+AsyncSessionLocal = async_sessionmaker(
     bind=engine,
-    class_=Session,
+    class_=AsyncSession,
     autocommit=False,
     autoflush=False,
-    future=True,
+    expire_on_commit=False,
 )
 
 
 # ---------- FastAPI 依赖注入 ----------
-def get_db() -> Generator[Session, None, None]:
+# def get_db() -> Generator[Session, None, None]:
+#     """
+#     每次请求提供一个独立的数据库会话：
+#       - 成功：仅关闭（由业务自行决定何时 commit）
+#       - 异常：回滚并抛出
+#     用法：
+#         from fastapi import Depends
+#         from sqlalchemy.orm import Session
+#         from app.infrastructure.db import get_db
+
+#         @router.get("/suppliers")
+#         def list_suppliers(db: Session = Depends(get_db)):
+#             return db.execute(select(Supplier)).scalars().all()
+#     """
+#     db = SessionLocal()
+#     try:
+#         yield db
+#         db.commit()
+#     except Exception:
+#         db.rollback()
+#         logger.exception("DB session rolled back due to an exception.")
+#         raise
+#     finally:
+#         db.close()
+        
+# ---------- FastAPI 依赖注入 (async) ----------
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    每次请求提供一个独立的数据库会话：
-      - 成功：仅关闭（由业务自行决定何时 commit）
+    为每次请求提供一个独立的 AsyncSession：
+      - 成功：自动提交
       - 异常：回滚并抛出
     用法：
-        from fastapi import Depends
-        from sqlalchemy.orm import Session
-        from app.infrastructure.db import get_db
-
         @router.get("/suppliers")
-        def list_suppliers(db: Session = Depends(get_db)):
-            return db.execute(select(Supplier)).scalars().all()
+        async def list_suppliers(db: AsyncSession = Depends(get_db)):
+            rows = await db.execute(select(Supplier))
+            return rows.scalars().all()
     """
-    db = SessionLocal()
-    try:
-        yield db
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("DB session rolled back due to an exception.")
-        raise
-    finally:
-        db.close()
+    async with AsyncSessionLocal() as db:
+        try:
+            yield db
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.exception("DB session rolled back due to an exception.")
+            raise
 
 
 # ---------- Script/Task 场景的上下文管理（可选） ----------
@@ -99,49 +123,50 @@ def get_db() -> Generator[Session, None, None]:
 #     s.add(Supplier(name="新供应商"))
 # 自动 commit / rollback。
 
-@contextlib.contextmanager
-def session_scope() -> Iterator[Session]:
+# ---------- Script/Task 场景的异步上下文管理 ----------
+@asynccontextmanager
+async def session_scope() -> AsyncIterator[AsyncSession]:
     """
-    便于脚本/批处理任务中使用的事务范围工具。
-    示例：
-        with session_scope() as s:
+    异步脚本/任务中的事务范围工具：
+        async with session_scope() as s:
             s.add(obj)
-            ...
     """
-    s = SessionLocal()
-    try:
-        yield s
-        s.commit()
-    except Exception:
-        s.rollback()
-        logger.exception("Transaction rolled back in session_scope.")
-        raise
-    finally:
-        s.close()
+    async with AsyncSessionLocal() as s:
+        try:
+            yield s
+            await s.commit()
+        except Exception:
+            await s.rollback()
+            logger.exception("Transaction rolled back in session_scope.")
+            raise
 
 
 # ---------- Alembic 支持 ----------
-# 在 alembic/env.py 中可直接：
-#     from app.infrastructure.db import engine, target_metadata
-#     target_metadata = target_metadata
+# Alembic 通常仍使用同步引擎在 env.py 里做迁移。
+# 如果你要用 async create_all（仅开发调试），见下方 init_db。
 target_metadata = Base.metadata
 
 
-# ---------- 运维工具（可选） ----------
-# 开发调试时可快速建表。
-# 生产上禁止直接用 create_all，要用 Alembic。
-
-def init_db(create_all: bool = False) -> None:
+# ---------- 运维工具（仅开发） ----------
+async def init_db(create_all: bool = False) -> None:
     """
-    本地开发调试可用的初始化方法。
-    注意：生产环境请使用 Alembic 迁移，不要随意 create_all。
+    本地开发调试可用的初始化方法（使用异步引擎）。
+    生产环境请使用 Alembic 迁移，不要随意 create_all。
     """
-    if create_all:
-        logger.warning("Calling Base.metadata.create_all(); prefer Alembic for schema migrations in production.")
-        Base.metadata.create_all(bind=engine)
+    if not create_all:
+        return
+    logger.warning("Calling Base.metadata.create_all() via async engine; prefer Alembic in production.")
+    async with engine.begin() as conn:
+        # 对于异步引擎，需要 run_sync 来调用同步的元数据方法
+        await conn.run_sync(Base.metadata.create_all)
 
-# 热重启/关停时释放连接池资源。
-def dispose_engine() -> None:
-    """在关停/热更新时可显式释放连接池资源。"""
-    engine.dispose()
-    logger.info("SQLAlchemy engine disposed.")
+
+async def dispose_engine() -> None:
+    """关停/热更新时释放连接池资源。"""
+    try:
+        await engine.dispose()
+        logger.info("Async SQLAlchemy engine disposed.")
+    except TypeError:
+        # 兼容老版本 SQLAlchemy（dispose 可能是同步）
+        engine.dispose()
+        logger.info("Async SQLAlchemy engine disposed (sync fallback).")

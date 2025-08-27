@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # ---- Database (PostgreSQL + SQLAlchemy) ----
-    # Preferred: full DSN via DATABASE_URL (e.g., postgresql+psycopg://user:pass@host:5432/db)
+    # Preferred: full DSN via DATABASE_URL (e.g., postgresql+asyncpg://user:pass@host:5432/db)
     DB_CREATE_ALL: bool = False
     DATABASE_URL: Optional[AnyUrl] = None
 
@@ -92,53 +92,80 @@ def get_settings() -> Settings:
     """
     return Settings()
 
+_LOGGING_CONFIGURED = False
 
-def setup_logging(level: Optional[str] = None, json_mode: Optional[bool] = None) -> None:
+def setup_logging(level: Optional[str] = None, json_mode: Optional[bool] = None, *, force: bool = False) -> None:
     """
-    Configure logging for the app. Call early in startup (e.g., in main.py before app starts).
+    全局初始化日志。多次调用也不会重复添加 handler。
+    - level/json_mode 可覆盖 settings
+    - force=True 时强制重新配置（会先移除旧 handlers）
     """
+    global _LOGGING_CONFIGURED
     settings = get_settings()
-    level = (level or settings.LOG_LEVEL).upper()
-    json_mode = settings.LOG_JSON if json_mode is None else json_mode
 
-    if json_mode:
-        # Minimal JSON-like formatter for log aggregators
+    # 已配置且不强制时直接返回（避免重复 handler）
+    if _LOGGING_CONFIGURED and not force:
+        return
+
+    # 解析级别 / 输出格式
+    lvl = (level or settings.LOG_LEVEL).upper()
+    use_json = settings.LOG_JSON if json_mode is None else bool(json_mode)
+
+    if use_json:
         fmt = (
             '{"time":"%(asctime)s","level":"%(levelname)s","name":"%(name)s",'
             '"message":"%(message)s","module":"%(module)s","func":"%(funcName)s","line":%(lineno)d}'
         )
+        datefmt = "%Y-%m-%dT%H:%M:%S"
     else:
         fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+        datefmt = "%Y-%m-%dT%H:%M:%S"
+
+    # —— 关键：清理现有 root handlers，避免重复输出 ——
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        root.removeHandler(h)
 
     config = {
         "version": 1,
-        "disable_existing_loggers": False,
+        "disable_existing_loggers": False,  # 不强行禁掉已存在的 logger（如 uvicorn/sqlalchemy）
         "formatters": {
-            "default": {"format": fmt, "datefmt": "%Y-%m-%dT%H:%M:%S"}
+            "default": {"format": fmt, "datefmt": datefmt}
         },
         "handlers": {
-            "default": {
+            "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
-            }
+                "stream": "ext://sys.stdout",   # 明确到 stdout
+            },
         },
         "root": {
-            "level": level,
-            "handlers": ["default"],
+            "level": lvl,
+            "handlers": ["console"],
         },
-        # Silence overly chatty libs in production-like envs if needed
         "loggers": {
-            "uvicorn.error": {"level": level},
-            "uvicorn.access": {"level": level},
-            "sqlalchemy.engine.Engine": {
-                "level": "INFO" if not settings.SQLALCHEMY_ECHO else "DEBUG"
+            # 细化第三方库日志，防止重复与噪声
+            "uvicorn": {"level": lvl, "handlers": [], "propagate": True},
+            "uvicorn.error": {"level": lvl, "handlers": [], "propagate": True},
+            # access 日志默认有独立 handler；把它的 propagate 关掉，避免再冒泡到 root 产生重复
+            "uvicorn.access": {"level": lvl, "handlers": [], "propagate": False},
+            # SQLAlchemy 建议用 'sqlalchemy.engine'
+            "sqlalchemy.engine": {
+                "level": "DEBUG" if settings.SQLALCHEMY_ECHO else "INFO",
+                "handlers": [],
+                "propagate": True,
             },
         },
     }
 
     dictConfig(config)
-    logging.getLogger(__name__).debug("Logging configured", extra={"level": level, "json": json_mode})
 
+    # 标记为已配置
+    _LOGGING_CONFIGURED = True
+
+    logging.getLogger(__name__).debug(
+        "Logging configured", extra={"level": lvl, "json": use_json}
+    )
 
 if __name__ == "__main__":
     #cd 到backend 目录下运行

@@ -44,7 +44,7 @@ DEBUG=true
 SECRET_KEY=please-change-me
 
 # 方式一：完整 DSN（推荐）
-DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/erp
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/erp
 
 # 方式二：分字段拼接（当未设置 DATABASE_URL 时生效）
 PG_HOST=db

@@ -25,7 +25,7 @@ except Exception as e:  # 兜底：如果配置导入失败，提示使用环境
 if not DB_URL:
     raise SystemExit(
         "No DATABASE_URL provided. Set env DATABASE_URL or ensure app.core.config works.\n"
-        "Example: postgresql+psycopg://erp_app:password@localhost:5432/erp"
+        "Example: postgresql+asyncpg://erp_app:password@localhost:5432/erp"
     )
 
 print(f"[INFO] Using DATABASE_URL = {DB_URL}")

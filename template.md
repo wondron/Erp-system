@@ -40,7 +40,7 @@ uvicorn app.main:app --reload
 pg_ctl start    #后续如果后台启动了就不用这样了
 cd backend
 set PYTHONPATH=%cd%
-set DATABASE_URL=postgresql+psycopg://postgres:123456@localhost:5433/erp   #代码生成是：postgresql+psycopg://postgres:postgres@db:5432/erp， db是Docker Compose 的服务名。我们先用localhost也就是本地的意思
+set DATABASE_URL=postgresql+asyncpg://postgres:123456@localhost:5433/erp   #代码生成是：postgresql+asyncpg://postgres:postgres@db:5432/erp， db是Docker Compose 的服务名。我们先用localhost也就是本地的意思
 python scripts/inspect_db.py
 
 
