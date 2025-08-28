@@ -30,7 +30,7 @@ class Base(DeclarativeBase):
     """
     pass
 
-logger.info("sqlalchemy_database_uri: %s", settings.sqlalchemy_database_uri)
+logger.info("sqlalchemy_database_uri: %s", settings.sqlalchemy_database_asyn_uri)
 
 # ⚠️ IMPORTANT:
 # settings.sqlalchemy_database_uri 必须使用异步驱动，例如：
@@ -42,7 +42,7 @@ logger.info("sqlalchemy_database_uri: %s", settings.sqlalchemy_database_uri)
 # - 使用 QueuePool（默认）并将大小、溢出、pre_ping、echo 等与 settings 对齐
 # - 采用 2.0 行为（future=True），避免旧 API 混用
 engine: AsyncEngine = create_async_engine(
-    settings.sqlalchemy_database_uri,
+    settings.sqlalchemy_database_asyn_uri,
     echo=settings.SQLALCHEMY_ECHO,
     pool_pre_ping=getattr(settings, "SQLALCHEMY_POOL_PREPING", True),
     # 对于某些 async 驱动（如 aiosqlite）不支持 pool_size/max_overflow，可按需删除

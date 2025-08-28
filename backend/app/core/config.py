@@ -66,7 +66,13 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_database_uri(self) -> str:
+        return str(self.DATABASE_URL_QIANYI)
+
+    @property
+    def sqlalchemy_database_asyn_uri(self) -> str:
         return str(self.DATABASE_URL)
+
+    
 
     @field_validator("ENV")
     @classmethod

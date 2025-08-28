@@ -16,7 +16,7 @@ public（默认的公共 schema）
 information_schema（系统提供的元数据）
 
 1. pg_ctl start   cmd中启动postgreSQL
-2. >psql -U postgres -p 5433    输入账户
+2. psql -U postgres -p 5433    输入账户
 3. 输入  123456   密码
 
 
@@ -32,7 +32,7 @@ erp=# \i 'D:/python/Erp-system/backend/app/infrastructure/init_in_db.sql'  数�
 
 ## 启动fastapi服务
 cd backend
-uvicorn app.main:app --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 
 
