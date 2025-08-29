@@ -65,3 +65,15 @@ npm install -D @types/node
 cd D:\01-code\Erp-system\frontend
 npm run dev
 ```
+
+
+
+## 启动redis
+redis-server
+uvicorn app.main:app --reload --port 8000       #启动 fastapi
+rq worker -u redis://localhost:6379/0 default   #启动 Worker（RQ）
+
+
+## docker builder
+cd Erp-system/backend
+docker build -t erp-backend:latest .
