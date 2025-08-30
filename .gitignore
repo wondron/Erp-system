@@ -2,3 +2,4 @@ backend/alembic/versions/
 
 __pycache__/
 
+*.pyc
