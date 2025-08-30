@@ -65,3 +65,10 @@ npm install -D @types/node
 cd D:\01-code\Erp-system\frontend
 npm run dev
 ```
+
+
+## 测试环境，正式环境的切换：
+export ENV=prod
+export DEBUG=false
+export DATABASE_URL=postgresql://prod_user:prod_pwd@prod-server/proddb
+在 Docker / k8s / Linux 服务器 上，通常不会放 .env 文件，而是用系统变量注入：

@@ -85,7 +85,12 @@ async def lifespan(app: FastAPI):
 
 
 # ---------- app & middleware ----------
-app = FastAPI(title="ERP System", lifespan=lifespan)
+app = FastAPI(
+    title=settings.APP_NAME,
+    debug=settings.DEBUG,
+    version=settings.VERSION, 
+    lifespan=lifespan
+    )
 
 # CORS（* 时浏览器规范不允许带凭证）
 allow_credentials = settings.ALLOW_CREDENTIALS and settings.ALLOWED_ORIGINS != ["*"]
@@ -105,3 +110,13 @@ app.include_router(api_router)
 @app.get("/", tags=["Health"])
 def root() -> dict[str, str]:
     return {"msg": "ERP backend is running"}
+
+
+@app.get("/")
+def read_root():
+    return {
+        "app_name": settings.APP_NAME,
+        "env": settings.ENV,
+        "debug": settings.DEBUG,
+        "version": settings.VERSION
+    }
