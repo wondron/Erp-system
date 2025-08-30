@@ -1,1 +1,4 @@
 backend/alembic/versions/
+
+__pycache__/
+

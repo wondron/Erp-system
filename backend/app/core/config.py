@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from pathlib import Path
 from typing import List, Optional
 from pydantic import AnyUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -56,6 +57,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"  # DEBUG | INFO | WARNING | ERROR | CRITICAL
     LOG_JSON: bool = False   # if True, enable JSON-like formatter friendly for log collectors
 
+    # ---- Redis ----
+    REDIS_URL: str = "redis://localhost:6379/0"
+    OUTPUT_DIR: str = "/tmp/erp_outputs"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -66,7 +71,13 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_database_uri(self) -> str:
+        return str(self.DATABASE_URL_QIANYI)
+
+    @property
+    def sqlalchemy_database_asyn_uri(self) -> str:
         return str(self.DATABASE_URL)
+
+    
 
     @field_validator("ENV")
     @classmethod
@@ -91,7 +102,9 @@ def get_settings() -> Settings:
     Cached settings loader. Use this in DI:
         settings = Depends(get_settings)
     """
-    return Settings()
+    settings = Settings()
+    Path(settings.OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    return settings
 
 
 if __name__ == "__main__":
