@@ -80,6 +80,25 @@ redis-server
 uvicorn app.main:app --reload --port 8000       #启动 fastapi
 rq worker -u redis://localhost:6379/0 default   #启动 Worker（RQ）
 
+docker pull redis:7-alpine # 把数据持久化到本地，避免容器删了数据没了
+mkdir D:\01-code\Erp-system\redis-data
+docker run -d --name erp-redis -p 6379:6379 -v D:\01-code\Erp-system\redis-data:/data --restart unless-stopped redis:7-alpine
+docker ps             # 看到 erp-redis 在运行
+docker logs erp-redis # 看启动日志
+
+开一个新的 bash，在 backend 目录：
+``` bash
+set "PYTHONPATH=%cd%"     # 只在当前窗口设置 PYTHONPATH（让 rq 能 import 到 app.*）
+# 启动 RQ worker，连接本机 Redis 6379，消费 default 队列
+python -m rq.cli worker --url redis://localhost:6379/0 default
+```
+
+### 另开一个终端（同样在 backend 目录）：
+uvicorn app.main:app --reload
+
+
+
+
 
 ## docker builder
 cd Erp-system/backend

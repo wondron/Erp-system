@@ -1,0 +1,33 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: erp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data-redis:/data         # 宿主持久化目录
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp-postgres
+    environment:
+      POSTGRES_USER: kumori
+      POSTGRES_PASSWORD: 123456    # 生产请改强密码或用 .env 管理
+      POSTGRES_DB: erpdb
+      TZ: "Asia/Shanghai"          # 可按需修改时区
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data-pg:/var/lib/postgresql/data  # 宿主持久化目录
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

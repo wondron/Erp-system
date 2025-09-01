@@ -14,6 +14,7 @@ class UserORM(Base):
     
 class LoginORM(Base):
     __tablename__ = "logins"
+    __table_args__ = {"schema": "erp_app"}  # 如果你用 erp_app 这个 schema
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)

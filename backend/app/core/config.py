@@ -20,7 +20,7 @@ logger = logging.getLogger('core.config')
 
 class Settings(BaseSettings):
     # ---- Meta ----
-    APP_NAME: str = "ERP System"
+    APP_NAME: str = "None DataLoad"
     ENV: str = "dev"  # dev | staging | prod
     DEBUG: bool = True
     VERSION: str = "0.1.0"
@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     # ---- Database (PostgreSQL + SQLAlchemy) ----
     # Preferred: full DSN via DATABASE_URL (e.g., postgresql+asyncpg://user:pass@host:5432/db)
     DB_CREATE_ALL: bool = False
-    DATABASE_URL: Optional[AnyUrl] = None
-    DATABASE_URL_QIANYI: Optional[AnyUrl] = None 
+    DATABASE_URL_TONGBU: Optional[AnyUrl] = None
+    DATABASE_URL_YIBU: Optional[AnyUrl] = None
     # ---- Security ----
     SECRET_KEY: str = "change-me-in-.env"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24h
@@ -58,8 +58,9 @@ class Settings(BaseSettings):
     LOG_JSON: bool = False   # if True, enable JSON-like formatter friendly for log collectors
 
     # ---- Redis ----
-    REDIS_URL: str = "redis://localhost:6379/0"
-    OUTPUT_DIR: str = "/tmp/erp_outputs"
+    REDIS_URL: str = "redis://localhost:63889/0"
+    RQ_QUEUE_NAME: str = "default"
+    OUTPUT_DIR: Path = Path("outputs")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -67,15 +68,18 @@ class Settings(BaseSettings):
         case_sensitive=True,  # 区分大小写
         extra="ignore",       # 忽略未定义的配置项
     )
-    logger.info('sql url: %s', DATABASE_URL)
 
     @property
     def sqlalchemy_database_uri(self) -> str:
-        return str(self.DATABASE_URL_QIANYI)
+        if not self.DATABASE_URL_TONGBU:
+            raise ValueError("DATABASE_URL_TONGBU is not set (expected postgresql+asyncpg://...)")
+        return str(self.DATABASE_URL_TONGBU)
 
     @property
     def sqlalchemy_database_asyn_uri(self) -> str:
-        return str(self.DATABASE_URL)
+        if not self.DATABASE_URL_YIBU:
+            raise ValueError("DATABASE_URL_YIBU is not set (expected postgresql+asyncpg://...)")
+        return str(self.DATABASE_URL_YIBU)
 
     
 
@@ -109,11 +113,11 @@ def get_settings() -> Settings:
 
 if __name__ == "__main__":
     #cd 到backend 目录下运行
-    # settings = get_settings()
-    # print(settings.model_dump_json(indent=2))
-
-    #setup_logging()在main.py中调用一次就行， 后面的两句哪里用哪里调用
+    logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s %(asctime)s %(name)s:%(lineno)d | %(message)s"
+    )
     logger = logging.getLogger(__name__)
     logger.info("Starting the application")
     settings = get_settings()
-    print(settings.model_dump_json(indent=2))
+    logger.info(type(settings.OUTPUT_DIR))

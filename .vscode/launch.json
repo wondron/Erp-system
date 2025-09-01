@@ -44,6 +44,47 @@
           "envFile": "${workspaceFolder}/backend/.env",
           "console": "integratedTerminal",
           "justMyCode": false
+      },
+      {
+          "name": "backend/app/infrastructure/redis_client.py",
+          "type": "python",
+          "request": "launch",
+          "program": "${workspaceFolder}/backend/app/infrastructure/redis_client.py",
+          "cwd": "${workspaceFolder}/backend",
+          "env": {
+            "PYTHONPATH": "${workspaceFolder}/backend"
+          },
+          "envFile": "${workspaceFolder}/backend/.env",
+          "console": "integratedTerminal",
+          "justMyCode": false
+      },
+      {
+        "name": "Alembic: upgrade head",
+        "type": "python",
+        "request": "launch",
+        "module": "alembic",
+        "cwd": "${workspaceFolder}/backend",
+        "args": ["upgrade", "head"],
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/backend",
+          "DATABASE_URL": "postgresql+asyncpg://kumori:123456@localhost:5432/erpdb"
+        },
+        "console": "integratedTerminal",
+        "justMyCode": false
+      },
+      {
+        "name": "Alembic: revision --autogenerate",
+        "type": "python",
+        "request": "launch",
+        "module": "alembic",
+        "cwd": "${workspaceFolder}/backend",
+        "args": ["revision", "--autogenerate", "-m", "debug"],
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/backend",
+          "DATABASE_URL": "postgresql+asyncpg://kumori:123456@localhost:5432/erpdb"
+        },
+        "console": "integratedTerminal",
+        "justMyCode": false
       }
     ]
   }

@@ -1,5 +1,5 @@
 backend/alembic/versions/
-
 __pycache__/
-
 *.pyc
+data-pg/
+data-redis/

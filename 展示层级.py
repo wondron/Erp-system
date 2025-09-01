@@ -25,7 +25,7 @@ def generate_project_structure(
         exclude = {
             '__pycache__', '.git', '.svn', '.hg', '.idea', '.vscode', '.md', '.txt',
             'venv', 'env', 'node_modules', '.DS_Store', 'dist', 'build', '展示层级.py',
-            '.gitignore', '.gitattributes', '.env', '.env.local', 'explain.txt'
+            '.gitignore', '.gitattributes', '.env', '.env.local', 'explain.txt', 'data-pg', 'data-redis'
         }
     
     # 获取根目录名称
@@ -95,7 +95,7 @@ def main():
     exclude = {
         '__pycache__', '.git', '.svn', '.hg', '.idea', '.vscode',
         'venv', 'env', 'node_modules', '.DS_Store', 'dist', 'build', '.md', '.txt'
-        '.gitignore', '.gitattributes', '.env', '.env.local', '展示层级.py','template.txt',
+        '.gitignore', '.gitattributes', '.env', '.env.local', '展示层级.py','template.txt','data-pg', 'data-redis'
         'explain.md', 'explain.txt'
     }
     
