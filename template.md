@@ -103,3 +103,27 @@ uvicorn app.main:app --reload
 ## docker builder
 cd Erp-system/backend
 docker build -t erp-backend:latest .
+
+
+# 最小启动方式
+cd Erp-system/backend
+set "PYTHONPATH=%cd%" (windows)
+export PYTHONPATH=backend (linux)
+
+1. 启动 docker compose up -d
+2. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+3. rq worker
+  powershell中
+    rq worker -u redis://localhost:6379/0 default
+  linux中：
+    rq worker -u "${REDIS_URL:-redis://localhost:6379/0}" default   (另起一个终端)
+
+4. 验证
+
+
+
+## 启动 rq worker
+cd backend
+export PYTHONPATH=backend
+# 如果你有 REDIS_URL（例如 redis://localhost:6379/0），可以加 -u
+rq worker -u "${REDIS_URL:-redis://localhost:6379/0}" default

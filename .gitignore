@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 data-pg/
 data-redis/
+postgresql/
+redis/
+process/

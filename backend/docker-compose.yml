@@ -5,7 +5,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ./data-redis:/data         # 宿主持久化目录
+      - ./data/redis:/data         # 宿主持久化目录
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -24,7 +24,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data-pg:/var/lib/postgresql/data  # 宿主持久化目录
+      - ./data/postgresql:/var/lib/postgresql/data  # 宿主持久化目录
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
