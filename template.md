@@ -127,3 +127,12 @@ cd backend
 export PYTHONPATH=backend
 # 如果你有 REDIS_URL（例如 redis://localhost:6379/0），可以加 -u
 rq worker -u "${REDIS_URL:-redis://localhost:6379/0}" default
+
+
+
+
+## uv方式安装环境
+pip install uv
+uv venv --python 3.11
+### 启动项目
+uv run uvicorn app.main:app --reload

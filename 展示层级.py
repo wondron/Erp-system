@@ -25,7 +25,7 @@ def generate_project_structure(
             "venv", "env", "node_modules", ".DS_Store", "dist", "build",
             ".gitignore", ".gitattributes", ".env", ".env.local",
             ".md", ".txt", "explain.md", "explain.txt",
-            "展示层级.py", "template.txt", "data-pg", "data-redis",
+            "展示层级.py", "template.txt", "postgresql", 'redis'
         }
     no_files_in = set(no_files_in or set())
 
@@ -93,7 +93,7 @@ def main():
         "venv", "env", "node_modules", ".DS_Store", "dist", "build",
         ".gitignore", ".gitattributes", ".env", ".env.local",
         ".md", ".txt", "explain.md", "explain.txt",
-        "展示层级.py", "template.txt", "data-pg", "data-redis",
+        "展示层级.py", "template.txt", "postgresql", 'redis'
     }
     if args.exclude:
         exclude.update(args.exclude)

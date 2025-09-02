@@ -1,9 +1,46 @@
 [project]
+name = "erp-backend"
+version = "0.1.0"
+description = "ERP System backend (FastAPI + SQLAlchemy + Alembic + Redis/RQ)"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+authors = [{ name = "wondron" }]
+
+# —— 生产依赖 ——
 dependencies = [
-"fastapi",
-"uvicorn[standard]",
-"sqlalchemy>=2.0",
-"psycopg2-binary",
-"alembic",
-"pydantic-settings",
+  # Web & Server
+  "fastapi",
+  "uvicorn[standard]",
+  "python-multipart",
+
+  # DB & ORM & Migrations
+  "SQLAlchemy>=2.0",
+  "alembic>=1.13",
+  "asyncpg",                 # 走 SQLAlchemy AsyncEngine，首选 asyncpg
+  # 如果你确实还要同步驱动，可改为 psycopg[binary]，但不要同时装两套驱动
+
+  # Settings / Config
+  "pydantic-settings>=2.4",
+
+  # Security
+  "passlib[bcrypt]",
+
+  # Queue
+  "redis>=5.0",
+  "rq>=1.16",
 ]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "httpx",
+  "black",
+  "ruff",
+  "mypy",
+  "types-redis",
+]
+
+[tool.uv]
+compile-bytecode = true      # 安装时自动编译 Python 字节码，提升运行性能
+python-preference = "only-managed"    # 仅使用 UV 管理的 Python 环境，确保环境一致性
