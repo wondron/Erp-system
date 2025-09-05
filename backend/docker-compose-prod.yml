@@ -1,0 +1,80 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: erp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kumori}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123456}  # 开发环境用，生产别这样
+      POSTGRES_DB: ${POSTGRES_DB:-erpdb}
+      TZ: "Asia/Shanghai"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgresql:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  backend:
+    # 复用你项目里的 Dockerfile 构建镜像（镜像里已经安装好依赖）
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp-backend
+    working_dir: /app
+    env_file:
+      - .env.dev                      # ✅ 指向 .env.dev
+    depends_on:
+      postgres:
+        condition: service_healthy    # ✅ 等数据库 Ready
+      redis:
+        condition: service_started
+    environment:
+      - PYTHONPATH=/app
+    ports:
+      - "8000:8000"
+    # ✅ 挂载源代码，开启 --reload
+    volumes:
+      - ./:/app                       # 将仓库根目录挂载到容器 /app
+    command: >
+      sh -c "
+      alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp-worker
+    working_dir: /app
+    env_file:
+      - .env.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./:/app
+      - ./data/process:/data/process
+    command: rq worker -u redis://redis:6379/0 default
+    restart: unless-stopped

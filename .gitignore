@@ -6,3 +6,4 @@ data-redis/
 postgresql/
 redis/
 process/
+.venv/
