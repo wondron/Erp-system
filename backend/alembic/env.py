@@ -57,7 +57,9 @@ def _pick_version_table_schema(schemas: List[str]) -> Optional[str]:
 
 
 def _process_revision_directives(context, revision, directives):
-    """autogenerate 时如无变化，跳过生成空迁移。"""
+    """
+    autogenerate 时如无变化，跳过生成空迁移。
+    """
     if getattr(context.config.cmd_opts, "autogenerate", False):
         script = directives[0]
         if script.upgrade_ops.is_empty():

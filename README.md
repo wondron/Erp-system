@@ -10,11 +10,26 @@ pip install -r requirement.txt
 2. 启动数据库与 Redis
 使用 docker-compose-dev.yml 启动
 ```bash
-docker-compose -f docker-compose-dev.yml up -d
+docker compose -f docker-compose.yml up -d
+```
+
+3. 初始化数据库（Alembic）
+```linux
+cd backend
+set PYTHONPATH=%cd%
+set -a; source .env.dev; set +a
+alembic upgrade head
+```
+
+``` windows cmd
+cd backend
+set PYTHONPATH=%cd%
+set DATABASE_URL_YIBU=postgresql+asyncpg://kumori:123456@localhost:5432/erpdb
+set sqlalchemy_database_asyn_uri=%DATABASE_URL_YIBU%
+alembic upgrade head
 ```
 
 
-3. 初始化数据库（Alembic）
 ```bash
 cd backend
 set -a; source .env.dev; set +a   # Windows 可用: setx /M ... 或临时在 PowerShell $env:VAR=...
@@ -37,6 +52,14 @@ cd backend
 source .venv/bin/activate
 set -a; source .env.dev; set +a
 rq worker -u "$REDIS_URL" default
+
+# windows cmd:（不带env参数）
+set "PROJECT_ROOT=D:\01-code\Erp-system\backend"
+set "PYTHONPATH=%PROJECT_ROOT%"
+set "PYTHONUNBUFFERED=1"
+set "REDIS_URL=redis://localhost:6379/0"
+cd /d %PROJECT_ROOT%
+rq worker -u %REDIS_URL% default --worker-class rq.SimpleWorker -P %PROJECT_ROOT%
 ```
 你项目里 app/infrastructure/redis_client.py + app/app_tasks/process.py 已经分工清楚：API 负责投递任务，RQ Worker 负责消费。开发时只要两个进程都在跑即可。
 
@@ -59,3 +82,16 @@ erp-worker     backend-worker       "rq worker -u redis:…"   worker     4 seco
 
 3. 查看日志：
 docker compose -f docker-compose-prod.yml logs backend
+docker compose -f docker-compose-prod.yml logs -f backend worker postgres
+
+4. 常用的命令
+| 功能             | 命令                                   |
+| -------------- | ------------------------------------ |
+| 查看正在运行的容器      | `docker ps`                          |
+| 查看所有容器（包括已退出的） | `docker ps -a`                       |
+| 启动容器           | `docker start <容器名/ID>`              |
+| 停止容器           | `docker stop <容器名/ID>`               |
+| 重启容器           | `docker restart <容器名/ID>`            |
+| 删除容器           | `docker rm <容器名/ID>`                 |
+| 进入容器           | `docker exec -it <容器名> bash`（或 `sh`） |
+| 退出容器终端         | `exit` 或 `Ctrl+D`                    |

@@ -19,3 +19,4 @@ python-multipart
 # --- Task Queue & Cache ---
 redis
 rq
+python-dotenv

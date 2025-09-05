@@ -120,3 +120,12 @@ def read_root():
         "debug": settings.DEBUG,
         "version": settings.VERSION
     }
+    
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",           # 指定 app
+        host="0.0.0.0",
+        port=8000,
+        reload=True               # 开发模式下热重载
+    )

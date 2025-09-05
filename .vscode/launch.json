@@ -7,7 +7,7 @@
         "request": "launch",
         "program": "${workspaceFolder}/backend/app/infrastructure/db.py",
         "cwd": "${workspaceFolder}/backend",
-        "envFile": "${workspaceFolder}/backend/.env",
+        "envFile": "${workspaceFolder}/backend/.env.dev",
         "env": {
           "PYTHONPATH": "${workspaceFolder}/backend"
         },
@@ -19,7 +19,7 @@
           "request": "launch",
           "program": "${workspaceFolder}/backend/app/core/config.py",
           "cwd": "${workspaceFolder}/backend",
-          "envFile": "${workspaceFolder}/backend/.env",
+          "envFile": "${workspaceFolder}/backend/.env.dev",
           "justMyCode": false
       },
       {
@@ -28,7 +28,7 @@
           "request": "launch",
           "program": "${workspaceFolder}/backend/scripts/1-检查数据库.py",
           "cwd": "${workspaceFolder}/backend",
-          "envFile": "${workspaceFolder}/backend/.env",
+          "envFile": "${workspaceFolder}/backend/.env.dev",
           "console": "integratedTerminal",
           "justMyCode": false
       },
@@ -41,7 +41,20 @@
           "env": {
             "PYTHONPATH": "${workspaceFolder}/backend"
           },
-          "envFile": "${workspaceFolder}/backend/.env",
+          "envFile": "${workspaceFolder}/backend/.env.dev",
+          "console": "integratedTerminal",
+          "justMyCode": false
+      },
+      {
+          "name": "backend/scripts/2-testAlembic.py",
+          "type": "python",
+          "request": "launch",
+          "program": "${workspaceFolder}/backend/scripts/2-testAlembic.py",
+          "cwd": "${workspaceFolder}/backend",
+          "env": {
+            "PYTHONPATH": "${workspaceFolder}/backend"
+          },
+          "envFile": "${workspaceFolder}/backend/.env.dev",
           "console": "integratedTerminal",
           "justMyCode": false
       },
@@ -54,7 +67,20 @@
           "env": {
             "PYTHONPATH": "${workspaceFolder}/backend"
           },
-          "envFile": "${workspaceFolder}/backend/.env",
+          "envFile": "${workspaceFolder}/backend/.env.dev",
+          "console": "integratedTerminal",
+          "justMyCode": false
+      },
+      {
+          "name": "backend/app/main.py",
+          "type": "python",
+          "request": "launch",
+          "program": "${workspaceFolder}/backend/app/main.py",
+          "cwd": "${workspaceFolder}/backend",
+          "env": {
+            "PYTHONPATH": "${workspaceFolder}/backend"
+          },
+          "envFile": "${workspaceFolder}/backend/.env.dev",
           "console": "integratedTerminal",
           "justMyCode": false
       },
