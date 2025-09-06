@@ -15,9 +15,10 @@ docker compose -f docker-compose.yml up -d
 
 3. 初始化数据库（Alembic）
 ```linux
-cd backend
-set PYTHONPATH=%cd%
-set -a; source .env.dev; set +a
+cd /data/Erp-system/backend
+export PYTHONPATH=$(pwd)
+export DATABASE_URL_YIBU='postgresql+asyncpg://kumori:123456@localhost:5432/erpdb'
+export sqlalchemy_database_asyn_uri=$DATABASE_URL_YIBU
 alembic upgrade head
 ```
 
@@ -41,19 +42,19 @@ alembic upgrade head
 4. 启动 API 和 RQ Worker
 两个终端分别执行：
 ```bash
-# 终端1：FastAPI
-cd backend
-source .venv/bin/activate
-set -a; source .env.dev; set +a
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
 # 终端2：RQ Worker
 cd backend
 source .venv/bin/activate
 set -a; source .env.dev; set +a
 rq worker -u "$REDIS_URL" default
 
+
 # windows cmd:（不带env参数）
+# 终端1：FastAPI
+cd /d D:\01-code\Erp-system\backend
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+
 set "PROJECT_ROOT=D:\01-code\Erp-system\backend"
 set "PYTHONPATH=%PROJECT_ROOT%"
 set "PYTHONUNBUFFERED=1"
@@ -61,7 +62,6 @@ set "REDIS_URL=redis://localhost:6379/0"
 cd /d %PROJECT_ROOT%
 rq worker -u %REDIS_URL% default --worker-class rq.SimpleWorker -P %PROJECT_ROOT%
 ```
-你项目里 app/infrastructure/redis_client.py + app/app_tasks/process.py 已经分工清楚：API 负责投递任务，RQ Worker 负责消费。开发时只要两个进程都在跑即可。
 
 
 

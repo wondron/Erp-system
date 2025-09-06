@@ -33,6 +33,16 @@
           "justMyCode": false
       },
       {
+        "name": "baoGuan e_gen4file",
+        "type": "python",
+        "request": "launch",
+        "module": "app.app_tasks.baoGuan.f_gen5file",
+        "cwd": "${workspaceFolder}/backend",
+        "envFile": "${workspaceFolder}/backend/.env.dev",
+        "console": "integratedTerminal",
+        "justMyCode": false
+      },
+      {
           "name": "backend/scripts/2-testAlembic.py",
           "type": "python",
           "request": "launch",
@@ -109,6 +119,16 @@
           "PYTHONPATH": "${workspaceFolder}/backend",
           "DATABASE_URL": "postgresql+asyncpg://kumori:123456@localhost:5432/erpdb"
         },
+        "console": "integratedTerminal",
+        "justMyCode": false
+      },
+      {
+        "name": "baoGuan",
+        "type": "python",
+        "request": "launch",
+        "module": "app.app_tasks.process_BaoGuan",
+        "cwd": "${workspaceFolder}/backend",
+        "envFile": "${workspaceFolder}/backend/.env.dev",
         "console": "integratedTerminal",
         "justMyCode": false
       }

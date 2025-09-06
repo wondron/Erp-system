@@ -1,9 +1,10 @@
+from io import BytesIO  # ★ 新增
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from enum import Enum
-from baoGuan.z_tools import Direction
-from . import z_tools
+from app.app_tasks.baoGuan.z_tools import Direction
+from app.app_tasks.baoGuan import z_tools
 from typing import List, Any
 from .a_extractInfo import ExcelReader
 from openpyxl.drawing.image import Image
@@ -170,9 +171,14 @@ class HeTongBuilder:
 
 
     def save_data(self, save_path):
-        # 保存文件
+        # 保存文件（保留原方法，按需使用）
         self.wb.save(save_path)
 
+    def to_bytes(self) -> bytes:
+        """★ 新增：把当前工作簿写入内存并返回 bytes"""
+        bio = BytesIO()
+        self.wb.save(bio)
+        return bio.getvalue()
 
     def calculate_total_data(self, start_row, data):
         total_data = []
@@ -239,30 +245,28 @@ class HeTongBuilder:
         self.ws.add_image(stamp, posite)
 
 
-
-    def detect(self, oridata, hetongstr, save_path, gongzhang_path):
+    # ★ 改造点：detect 返回 bytes，不再落盘，不再需要 save_path 参数
+    def detect(self, oridata, hetongstr, gongzhang_path) -> bytes:
         rowNum = self.get_fix_content(hetongstr)
         zhuangxiang_data = self.get_zhuangxiang_data(oridata)
         rowNum1 = self.input_data(zhuangxiang_data, rowNum)
         rowNum2 = self.calculate_total_data(rowNum1, zhuangxiang_data)
         self.change_sheet_size(rowNum2)
-        self.insert_image(rowNum2, gongzhang_path)
-        self.save_data(save_path)
-
+        if gongzhang_path:
+            self.insert_image(rowNum2, gongzhang_path)
+        return self.to_bytes()  # ★ 返回二进制
 
 
 if __name__ == "__main__":
-    save_path = '报关资料样板.xlsx'
-    filepath = r'C:\Users\wondron\Documents\WeChat Files\wz-offensive\FileStorage\File\2025-08\项目1报关资料输出\1.输入\DI信息.xlsx'
-    reader = ExcelReader(filepath)
+    # 示例：本地调试时依然可以把返回的 bytes 写到磁盘看看效果
+    fp = r"app/app_tasks/resource/example.xlsx"
+    with open(fp, "rb") as f:
+        blob = f.read()
+    reader = ExcelReader(blob)
     data_dicts = reader.read_as_dicts()
-    save_path = '报关资料样板.xlsx'
+    
     builder = HeTongBuilder()
-    builder.detect(data_dicts, data_dicts[0]['预约号'], save_path)
-    # rowNum = builder.get_fix_content(data_dicts[0]['预约号'])
-    # zhuangxiang_data = builder.get_zhuangxiang_data(data_dicts)
-    # rowNum = builder.input_data(zhuangxiang_data, rowNum)
-    # rowNum = builder.calculate_total_data(rowNum, zhuangxiang_data)
-    # builder.change_sheet_size(rowNum)
-    # builder.insert_image(rowNum, "resource/gonzhang.png")
-    # builder.save_data(save_path)
+    xlsx_bytes = builder.detect(data_dicts, data_dicts[0]['合同号码'], gongzhang_path="app/app_tasks/resource/gonzhang.png")
+
+    with open('4-合同样板.xlsx', 'wb') as f:
+        f.write(xlsx_bytes)

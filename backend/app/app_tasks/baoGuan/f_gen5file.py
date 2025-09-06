@@ -1,12 +1,18 @@
+from io import BytesIO  # ★ 新增
 from openpyxl import load_workbook
 from .a_extractInfo import ExcelReader
 from . import z_tools
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
+import logging
+
+
+logger = logging.getLogger('报关资料5')
+
 
 
 class BaoGuanBuilder():
-    def __init__(self, sourcepath= "resource/baoguan.xlsx"):
+    def __init__(self, sourcepath= "./app/app_tasks/resource/baoguan.xlsx"):
         self.title = 'baoguan'
         self.wb = load_workbook(sourcepath)
         self.ws = self.wb.active
@@ -19,9 +25,7 @@ class BaoGuanBuilder():
         )
         self.yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
-
     def add_detial_info(self, itemInfo):
-
         total_jin = 0
         total_mao = 0
         total_num = 0
@@ -32,18 +36,12 @@ class BaoGuanBuilder():
             total_jin += value['净重']
             total_mao += value['毛重']
             total_num += value['箱数']
-
-        print(heyue, fahuo, total_jin, total_mao, total_num)
-
+        logger.info(f'预约号：{heyue}，发货地：{fahuo}，总净重：{total_jin}，总毛重：{total_mao}，总箱数：{total_num}')
         self.ws.cell(row=16, column=1).value = heyue
         self.ws.cell(row=16, column=2).value = total_num
         self.ws.cell(row=16, column=7).value = total_mao
         self.ws.cell(row=16, column=11).value = total_jin
         self.ws.cell(row=12, column=10).value = fahuo
-
-
-
-        
 
     def insertItem(self, itemInfo):
         content = [['项号   商品编号', 
@@ -61,7 +59,7 @@ class BaoGuanBuilder():
         for key, value in itemInfo.items():
             a, b, c = key
             showName = f' {startIdex:02d}  {a}'
-            print(showName)
+            logger.info(showName)
             if c == '':
                 c = '有问题！！！！'
 
@@ -98,7 +96,6 @@ class BaoGuanBuilder():
 
         return row_num
     
-
     def addEndContent(self, row_num):
         weightList = [20.25, 13.5, 24.75, 14.25, 22.5, 
                       14.25, 21.75,14.25, 12, 9.75,
@@ -140,20 +137,21 @@ class BaoGuanBuilder():
         z_tools.add_outer_border(self.ws, row_num + 7, row_num + 7, 1, 2, border_type='bottom')
         z_tools.add_outer_border(self.ws, row_num + 8, row_num + 8, 1, 2, border_type='bottom')
 
-        
     def save_data(self, save_path):
-        # 保存文件
         self.wb.save(save_path)
 
-
+    def to_bytes(self) -> bytes:
+        """★ 新增：把当前工作簿写入内存并返回 bytes"""
+        bio = BytesIO()
+        self.wb.save(bio)
+        return bio.getvalue()
 
     def process_data(self, extract_info):
         total_data = {}
-        
         for item in extract_info:
             ywenstr = item.get('英文品名', '')
             zwenstr = item.get('中文品名', '')
-            hsCode  = item.get('海关编码', '')
+            hsCode  = item.get('HS CODE', '')
             show_name = f"{hsCode}{zwenstr}"
 
             price       = item.get('单价', 0)
@@ -161,7 +159,7 @@ class BaoGuanBuilder():
             jinWeight   = item.get('净重', 0)
             maoWeight   = item.get('毛重', 0)
             number      = item.get('数量', 0)
-            xinghao     = item.get('申报要素', '')
+            xinghao     = item.get('产品型号', '')
             xiangshu    = item.get('箱数', 0)
 
             key = (show_name, price, xinghao)
@@ -172,8 +170,8 @@ class BaoGuanBuilder():
                     '净重': jinWeight,
                     '毛重': maoWeight,
                     '箱数': xiangshu,
-                    '境内货源地': item.get('境内货源地', ''),
-                    '预约号': item.get('预约号', ''),
+                    '境内货源地': item.get('发货地', ''),
+                    '预约号': item.get('合同号码', ''),
                 }
             else:
                 total_data[key]['数量'] += number
@@ -181,31 +179,29 @@ class BaoGuanBuilder():
                 total_data[key]['净重'] += jinWeight
                 total_data[key]['毛重'] += maoWeight
                 total_data[key]['箱数'] += xiangshu
-        
         return total_data
     
-
-    def detect(self, dataDict, save_path):
+    # ★ 改造点：返回 bytes；为兼容旧用法，save_path 设为可选
+    def detect(self, dataDict, save_path: str | None = None) -> bytes:
         dataInfo = self.process_data(dataDict)
         rowNum = self.insertItem(dataInfo)
         self.addEndContent(rowNum)
         self.add_detial_info(dataInfo)
-        self.save_data(save_path)
+        if save_path:
+            self.save_data(save_path)
+        return self.to_bytes()
 
-    
 
 if __name__ == '__main__':
-    save_path = '报关资料样板.xlsx'
-    filepath = r'D:\python\02-erp\resource\DI信息.xlsx'
-    reader = ExcelReader(filepath)
+    save_path = '5-报关资料样板.xlsx'
+    fp = r"app/app_tasks/resource/example.xlsx"
+    with open(fp, "rb") as f:
+        blob = f.read()
+    reader = ExcelReader(blob)
     data_dicts = reader.read_as_dicts()
-    save_path = '报关资料样板.xlsx'
 
-    baoguan_path = r'D:\python\02-erp\resource\baoguan.xlsx'
     builder = BaoGuanBuilder()
-    # dataInfo = builder.process_data(data_dicts)
-    # rowNum = builder.insertItem(dataInfo)
-    # builder.addEndContent(rowNum)
-    # builder.add_detial_info(dataInfo)
-    # builder.save_data(save_path)
-    builder.detect(data_dicts, save_path)
+    xlsx_bytes = builder.detect(data_dicts, save_path=None)  # 只要 bytes 不落盘就传 None
+    # 本地想看看文件的话：
+    with open(save_path, 'wb') as f:
+        f.write(xlsx_bytes)
