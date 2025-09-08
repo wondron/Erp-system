@@ -136,3 +136,13 @@ pip install uv
 uv venv --python 3.11
 ### 启动项目
 uv run uvicorn app.main:app --reload
+
+
+
+怎么与前面 RequestCtx 对接
+
+你之前已经把 RequestIDMiddleware 和 RequestCtx 接进项目。前端拿到 access_token 后，在每次请求头加：
+
+Authorization: Bearer <access_token>
+
+（可选）X-Request-ID / Trace-Id

@@ -1,4 +1,21 @@
 from passlib.context import CryptContext
+from __future__ import annotations
+from typing import Optional, Any, Dict
+import base64
+import json
+
+
+def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload_json = base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+        return json.loads(payload_json)
+    except Exception:
+        return None
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

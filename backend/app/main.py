@@ -5,8 +5,9 @@ import logging
 from typing import Iterable, Generator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from app.infrastructure.middleware import RequestIDMiddleware
 from fastapi.routing import APIRoute
 
 from app.core.config import get_settings
@@ -16,8 +17,8 @@ from app.infrastructure.db import init_db, dispose_engine  # 关停时释放连�
 
 # ---- logging & settings ----
 setup_logging()
-logger = logging.getLogger("erp.app")
 settings = get_settings()
+logger = logging.getLogger(settings.APP_NAME)
 
 
 # ---------- helpers ----------
@@ -91,7 +92,7 @@ app = FastAPI(
     version=settings.VERSION, 
     lifespan=lifespan
     )
-
+app.add_middleware(RequestIDMiddleware)
 # CORS（* 时浏览器规范不允许带凭证）
 allow_credentials = settings.ALLOW_CREDENTIALS and settings.ALLOWED_ORIGINS != ["*"]
 app.add_middleware(
@@ -110,6 +111,13 @@ app.include_router(api_router)
 @app.get("/", tags=["Health"])
 def root() -> dict[str, str]:
     return {"msg": "ERP backend is running"}
+
+
+@app.get("/ping")
+def ping(request: Request):
+    return {
+        "request_id": getattr(request.state, "request_id", None)
+    }
 
 
 @app.get("/")

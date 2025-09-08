@@ -5,6 +5,7 @@ from mimetypes import guess_type
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from app.infrastructure.request_context import RequestCtx, RequestContext  # ★ 新增
 from fastapi.responses import FileResponse
 from fastapi.encoders import jsonable_encoder
 from rq.job import Job
@@ -49,6 +50,7 @@ WORKER_MAP: dict[TaskType, Callable] = {
 async def upload(
     file: UploadFile = File(...),
     task_type: TaskType = Query(TaskType.text),
+    ctx: RequestContext = RequestCtx
 ):
     raw = await file.read()
     task_id = uuid4().hex
@@ -76,7 +78,8 @@ async def upload(
         f"📥 [上传接口] 开始处理, "
         f"task_type={task_type_val}, "
         f"filename={file.filename}, "
-        f"ext={default_ext}"
+        f"ext={default_ext}, "
+        f"rid={ctx.request_id}, trace={ctx.trace_id}, user={ctx.username or ctx.user_id}"
     )
     job.meta.update(
         {
@@ -84,11 +87,21 @@ async def upload(
             "expect_ext": default_ext,
             "filename": file.filename,
             "content_type": file.content_type,
+            # ↓↓↓ 新增的可观测性/审计字段 ↓↓↓
+            "request_id": ctx.request_id,
+            "trace_id": ctx.trace_id,
+            "user_id": ctx.user_id,
+            "username": ctx.username,
+            "roles": ctx.roles,
+            "ip": ctx.ip,
+            "user_agent": ctx.user_agent,
+            # 如确有需要，也可以存 token_sub（不建议存原始 token）
+            "token_sub": ctx.token_sub
         }
     )
     job.save_meta()
 
-    return {"task_id": task_id, "status": job.get_status(refresh=False)}
+    return {"task_id": task_id, "status": job.get_status(refresh=False), "request_id": ctx.request_id, "trace_id": ctx.trace_id}
 
 
 @router.get("/{task_id}/status", summary="查询任务状态")
