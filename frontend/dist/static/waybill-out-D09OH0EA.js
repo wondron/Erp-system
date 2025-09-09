@@ -1,0 +1,1 @@
+import{_ as e}from"./index-BHYxE3Gd.js";import{q as r,t as o,v as n}from"./vue-DJH8E3j2.js";import"./element-CLyM6JBN.js";import"./vxe-C1c2Jdx3.js";const s={};function a(l,t){return r(),o("div",null,t[0]||(t[0]=[n("h1",null,"出库单",-1)]))}const p=e(s,[["render",a]]);export{p as default};

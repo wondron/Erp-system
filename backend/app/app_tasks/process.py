@@ -40,7 +40,18 @@ def process_file_task(task_id: str, raw: bytes, task_type: str, ext: str = "txt"
         "进入 process_file_task job_id=%s type=%s ext=%s in_size=%s",
         getattr(job, "id", None), task_type, ext, in_size
     )
-
+    ##########################后续再加鉴别功能#########################
+    ctx = {
+        "request_id": job.meta.get("request_id"),
+        "trace_id": job.meta.get("trace_id"),
+        "user_id": job.meta.get("user_id"),
+        "username": job.meta.get("username"),
+        "roles": job.meta.get("roles"),
+        "ip": job.meta.get("ip"),
+        "ua": job.meta.get("user_agent"),
+    }
+    logger.info(f"context: {ctx}")
+    ##################################################################
     changes_name = None
     try:
         # ---- 分发处理 ----

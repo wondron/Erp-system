@@ -43,24 +43,49 @@ alembic upgrade head
 两个终端分别执行：
 ```bash
 # 终端2：RQ Worker
-cd backend
-source .venv/bin/activate
-set -a; source .env.dev; set +a
-rq worker -u "$REDIS_URL" default
+# 1) 环境变量（Linux 用 export 和 $VAR）
+export PROJECT_ROOT=/data/Erp-system/backend
+export PYTHONPATH="$PROJECT_ROOT"
+export PYTHONUNBUFFERED=1
+export REDIS_URL=redis://localhost:6379/0    # 或者你的 redis 地址
 
+# 2) 进入项目目录
+cd "$PROJECT_ROOT"
+
+# 3) （可选）激活 conda 环境
+# eval "$(/root/miniconda3/bin/conda shell.bash hook)"   # 如果还没 init
+# conda activate erp
+
+# 4) 启动 RQ Worker
+rq worker -u "$REDIS_URL" default \
+  --worker-class rq.SimpleWorker \
+  -P "$PROJECT_ROOT"
+```
 
 # windows cmd:（不带env参数）
 # 终端1：FastAPI
 cd /d D:\01-code\Erp-system\backend
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-
+``` bash
 set "PROJECT_ROOT=D:\01-code\Erp-system\backend"
 set "PYTHONPATH=%PROJECT_ROOT%"
 set "PYTHONUNBUFFERED=1"
 set "REDIS_URL=redis://localhost:6379/0"
 cd /d %PROJECT_ROOT%
 rq worker -u %REDIS_URL% default --worker-class rq.SimpleWorker -P %PROJECT_ROOT%
+```
+
+
+# 启动fastapi
+``` bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+nohup uvicorn app.main:app \
+  --host 0.0.0.0 \
+  --port 8000 \
+  > uvicorn.log 2>&1 &
+
 ```
 
 

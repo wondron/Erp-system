@@ -1,0 +1,1 @@
+import{_ as r}from"./index-BHYxE3Gd.js";import{q as o,t,v as n}from"./vue-DJH8E3j2.js";import"./element-CLyM6JBN.js";import"./vxe-C1c2Jdx3.js";const s={};function c(a,e){return o(),t("div",null,e[0]||(e[0]=[n("h1",null,"record",-1)]))}const i=r(s,[["render",c]]);export{i as default};

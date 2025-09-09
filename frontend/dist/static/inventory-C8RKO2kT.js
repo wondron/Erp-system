@@ -1,0 +1,1 @@
+import{_ as r}from"./index-BHYxE3Gd.js";import{q as t,t as o,v as n}from"./vue-DJH8E3j2.js";import"./element-CLyM6JBN.js";import"./vxe-C1c2Jdx3.js";const s={};function a(c,e){return t(),o("div",null,e[0]||(e[0]=[n("h1",null,"库存管理",-1)]))}const p=r(s,[["render",a]]);export{p as default};

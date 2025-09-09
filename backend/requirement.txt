@@ -21,6 +21,7 @@ redis
 rq
 python-dotenv
 pandas
-openpyxl
 pillow
+openpyxl
+PyJWT
 opencv-python
