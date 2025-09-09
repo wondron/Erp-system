@@ -1,138 +1,132 @@
-啵啵啵，刚刚你帮我搭了一个最小可运行的骨架，后端 FastAPI：模块化结构，包含MasterData / Purchasing / Inventory 三个路由示例。前端 Vue 3：基础路由、Pinia 状态管理、一个采购单创建表单的 demo。 数据库是（PostgreSQL + SQLAlchemy）的持久化示例
+# 将本地Vue项目部署到阿里云ECS服务器
 
+部署Vue项目到阿里云ECS通常需要经过服务器环境配置、项目打包、文件上传和Web服务器配置等步骤。以下是详细的部署流程：
 
-1. schema 的基本概念
-schema 是数据库里的命名空间（类似文件夹/目录）。
-一个数据库（database）可以包含多个 schema，每个 schema 里可以有表（table）、视图、函数、序列等对象。
-不同 schema 里的对象可以同名，但不会冲突，因为它们有“命名空间”。
+## 一、准备工作
 
-2. 和数据库 (database) 的关系
-database：相当于一个“库房”
-schema：库房里的“分区”
-table：分区里的“货架/表格”
-所以你现在有一个数据库 erp，里面有多个 schema：
-erp_app（你的业务对象放在这里）
-public（默认的公共 schema）
-information_schema（系统提供的元数据）
+1. 已购买并启动的阿里云ECS实例（推荐使用CentOS 7/8或Ubuntu系统）
+2. 本地已开发完成的Vue项目
+3. 服务器已开放80/443端口（在阿里云安全组中配置）
+4. 本地安装有Xshell或Putty等SSH工具，以及FileZilla等FTP工具
 
-1. pg_ctl start   cmd中启动postgreSQL
-2. psql -U postgres -p 5433    输入账户
-3. 输入  123456   密码
+## 二、服务器环境配置
 
+### 1. 连接服务器
 
-
-
-## postgresql 里面创建数据库：
-CREATE DATABASE erp;
-
-\l   -- 列出所有数据库
-\c erp   --切换到 erp 的数据库
-erp=# \i 'D:/python/Erp-system/backend/app/infrastructure/init_in_db.sql'  数据库内初始化。
-
-
-## 启动fastapi服务
-cd backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-
-
-## 检查数据库
-pg_ctl start    #后续如果后台启动了就不用这样了
-cd backend
-set PYTHONPATH=%cd%
-set DATABASE_URL=postgresql+asyncpg://postgres:123456@localhost:5433/erp   #代码生成是：postgresql+asyncpg://postgres:postgres@db:5432/erp， db是Docker Compose 的服务名。我们先用localhost也就是本地的意思
-python scripts/inspect_db.py
-
-
-## 前端代码生成
-1.  创建一个新项目，会生成一个fronted文件夹
-npm create vite@latest frontend
-
-2. 选择 vue 和 TypeScript(ts文件)
-
-  cd frontend
-  npm install
-  npm run dev
-
-3. 安装依赖项
-npm install vue-router pinia axios
-
-4. 在 frontend 执行这样 VS Code / TS 就知道 path 是 Node 内置模块了。
-npm install -D @types/node
-
-## 启动开发服务器
+使用SSH工具连接到你的ECS服务器：
 ```bash
-cd D:\01-code\Erp-system\frontend
-npm run dev
+ssh 用户名@服务器公网IP
 ```
 
+### 2. 安装必要软件
 
-## 测试环境，正式环境的切换：
-export ENV=prod
-export DEBUG=false
-export DATABASE_URL=postgresql://prod_user:prod_pwd@prod-server/proddb
-在 Docker / k8s / Linux 服务器 上，通常不会放 .env 文件，而是用系统变量注入：
+#### 安装Node.js和npm（用于可能的后端API或构建）
+```bash
+# CentOS系统
+curl -sL https://rpm.nodesource.com/setup_16.x | bash -
+yum install -y nodejs
 
-
-
-## 启动redis
-redis-server
-uvicorn app.main:app --reload --port 8000       #启动 fastapi
-rq worker -u redis://localhost:6379/0 default   #启动 Worker（RQ）
-
-docker pull redis:7-alpine # 把数据持久化到本地，避免容器删了数据没了
-mkdir D:\01-code\Erp-system\redis-data
-docker run -d --name erp-redis -p 6379:6379 -v D:\01-code\Erp-system\redis-data:/data --restart unless-stopped redis:7-alpine
-docker ps             # 看到 erp-redis 在运行
-docker logs erp-redis # 看启动日志
-
-开一个新的 bash，在 backend 目录：
-``` bash
-set "PYTHONPATH=%cd%"     # 只在当前窗口设置 PYTHONPATH（让 rq 能 import 到 app.*）
-# 启动 RQ worker，连接本机 Redis 6379，消费 default 队列
-python -m rq.cli worker --url redis://localhost:6379/0 default
+# Ubuntu系统
+curl -sL https://deb.nodesource.com/setup_16.x | sudo -E bash -
+sudo apt-get install -y nodejs
 ```
 
-### 另开一个终端（同样在 backend 目录）：
-uvicorn app.main:app --reload
+#### 安装Nginx（作为Web服务器）
+```bash
+# CentOS系统
+yum install -y nginx
+
+# Ubuntu系统
+sudo apt-get install -y nginx
+```
+
+启动Nginx并设置开机自启：
+```bash
+# CentOS系统
+systemctl start nginx
+systemctl enable nginx
+
+# Ubuntu系统
+sudo systemctl start nginx
+sudo systemctl enable nginx
+```
+
+## 三、Vue项目打包
+
+在本地Vue项目根目录执行打包命令：
+```bash
+# 安装依赖（如果尚未安装）
+npm install
+
+# 打包生产环境版本
+npm run build
+```
+
+打包完成后，会生成一个`dist`目录，里面包含了可部署的静态文件。
+
+## 四、上传项目到服务器
+
+使用FTP工具（如FileZilla）将本地的`dist`目录上传到服务器的`/var/www/html`目录下，或你自定义的目录。
+
+也可以使用scp命令上传：
+```bash
+scp -r dist/* 用户名@服务器公网IP:/var/www/html/
+```
+
+## 五、配置Nginx
+
+创建或修改Nginx配置文件：
 
 
 
 
 
-## docker builder
-cd Erp-system/backend
-docker build -t erp-backend:latest .
+### 配置步骤：
+
+1. 创建配置文件：
+```bash
+vi /etc/nginx/conf.d/vue-project.conf
+```
+
+2. 将上面的配置内容复制进去，修改`server_name`为你的服务器IP或域名
+
+3. 检查Nginx配置是否正确：
+```bash
+nginx -t
+```
+
+4. 重新加载Nginx配置：
+```bash
+# CentOS系统
+systemctl reload nginx
+
+# Ubuntu系统
+sudo systemctl reload nginx
+```
+
+## 六、设置文件权限
+
+确保Nginx有权限访问你的项目文件：
+```bash
+chmod -R 755 /var/www/html
+chown -R nginx:nginx /var/www/html  # CentOS系统
+# 或
+chown -R www-data:www-data /var/www/html  # Ubuntu系统
+```
+
+## 七、测试访问
+
+在浏览器中输入你的服务器IP或域名，应该可以看到你的Vue项目正常运行了。
+
+## 八、可选：配置HTTPS
+
+如果需要配置HTTPS，可以通过阿里云申请免费SSL证书，然后在Nginx中配置：
+
+1. 将证书文件上传到服务器的`/etc/nginx/ssl`目录
+2. 修改Nginx配置文件，添加HTTPS配置
 
 
-# 最小启动方式
-cd Erp-system/backend
-set "PYTHONPATH=%cd%" (windows)
-export PYTHONPATH=backend (linux)
-
-1. 启动 docker compose up -d
-2. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-3. rq worker
-  powershell中
-    rq worker -u redis://localhost:6379/0 default
-  linux中：
-    rq worker -u "${REDIS_URL:-redis://localhost:6379/0}" default   (另起一个终端)
-
-4. 验证
 
 
 
-## 启动 rq worker
-cd backend
-export PYTHONPATH=backend
-# 如果你有 REDIS_URL（例如 redis://localhost:6379/0），可以加 -u
-rq worker -u "${REDIS_URL:-redis://localhost:6379/0}" default
-
-
-
-
-## uv方式安装环境
-pip install uv
-uv venv --python 3.11
-### 启动项目
-uv run uvicorn app.main:app --reload
+完成以上步骤后，你的Vue项目就成功部署到阿里云ECS服务器上了。如果后续需要更新项目，只需重新打包并上传替换`dist`目录下的文件即可。

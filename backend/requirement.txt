@@ -20,3 +20,7 @@ python-multipart
 redis
 rq
 python-dotenv
+pandas
+openpyxl
+pillow
+opencv-python
