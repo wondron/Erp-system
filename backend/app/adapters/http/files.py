@@ -17,8 +17,6 @@ import logging
 
 
 logger = logging.getLogger('router.file')
-
-
 router = APIRouter(prefix="/files", tags=["files"])
 
 
@@ -106,8 +104,8 @@ async def upload(
 
 @router.get("/{task_id}/status", summary="查询任务状态")
 def status(task_id: str):
-    
     try:
+        logger.info("📥 [状态查询接口] 开始处理, task_id=%s", task_id)
         job = Job.fetch(task_id, connection=redis_conn)
     except Exception:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -128,9 +126,25 @@ def status(task_id: str):
     return jsonable_encoder(data)
 
 
+@router.get("/get-template", summary="下载模板文件")
+def download_template():
+    logger.info("📥 [下载模板接口] 开始处理")
+    filename = "template.xlsx"
+    template_path = Path(__file__).resolve().parents[2] / "app_tasks" / "resource" / filename
+
+    logger.info("📥 [下载模板] 请求进入, path=%s", template_path)
+
+    if not template_path.exists():
+        logger.error("❌ 模板文件不存在: %s", template_path)
+        raise HTTPException(status_code=404, detail="模板文件不存在!")
+
+    media_type = guess_type(template_path.name)[0] or "application/octet-stream"
+    return FileResponse(str(template_path), media_type=media_type, filename=filename)
+
+
 @router.get("/{task_id}/download", summary="下载生成文件")
 def download(task_id: str):
-    logger.info(f"📥 [下载接口] 开始处理, task_id={task_id}")
+    logger.info("📥 [下载接口] 开始处理, task_id=%s", task_id)
     ext: str | None = None
     job: Job | None = None
     try:

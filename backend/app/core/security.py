@@ -1,5 +1,5 @@
-from passlib.context import CryptContext
 from __future__ import annotations
+from passlib.context import CryptContext
 from typing import Optional, Any, Dict
 import base64
 import json

@@ -66,10 +66,10 @@ def tree(
 
 # ============ 示例 ============
 if __name__ == "__main__":
-    root = r"frontend"
+    root = r"backend"
     # 文件名或路径里包含这些子串的文件会被隐藏（举例）
     exclude_files = {".pyc", ".log"}
     # 目录路径里包含这些子串的目录会整棵隐藏（举例）
-    exclude_dirs = {"__pycache__", ".git", ".vscode", r"data", r"postgresql", r"Scripts", r".venv", r"Lib", 'global', '.env'}
+    exclude_dirs = {"__pycache__", ".git", ".vscode", r"data", r"postgresql", r"Scripts", r".venv", r"Lib", 'global', '.env', 'fonts', 'baoGuan'}
 
     print(tree(root, exclude_files, exclude_dirs))

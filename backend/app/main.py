@@ -16,9 +16,10 @@ from app.adapters.http.routes import api_router
 from app.infrastructure.db import init_db, dispose_engine  # 关停时释放连接
 
 # ---- logging & settings ----
-setup_logging()
+setup_logging(force=True)
 settings = get_settings()
 logger = logging.getLogger(settings.APP_NAME)
+logger.setLevel(logging.INFO)
 
 
 # ---------- helpers ----------
@@ -110,6 +111,7 @@ app.include_router(api_router)
 # ---------- health ----------
 @app.get("/", tags=["Health"])
 def root() -> dict[str, str]:
+    logger.info('ping root')
     return {"msg": "ERP backend is running"}
 
 

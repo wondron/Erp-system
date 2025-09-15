@@ -2,20 +2,20 @@
 
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from .orm_models import UserORM
+from app.infrastructure.orm_models import UserORM
 
 try:
-    from ..domain.models import User
+    from app.domain.models import User
     USE_DOMAIN = True
 except Exception:
     USE_DOMAIN = False
 
 
-def to_domain(u: UserORM) -> User:
-    return User(id=u.id, first_name=u.first_name, last_name=u.last_name, created_at=u.created_at)
+# def to_domain(u: UserORM) -> User:
+#     return User(id=u.id, first_name=u.first_name, last_name=u.last_name, created_at=u.created_at)
 
-def to_orm(u: User) -> UserORM:
-    return UserORM(id=u.id, first_name=u.first_name, last_name=u.last_name)
+# def to_orm(u: User) -> UserORM:
+#     return UserORM(id=u.id, first_name=u.first_name, last_name=u.last_name)
 
     
 class UserRepo:

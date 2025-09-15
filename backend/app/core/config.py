@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     SQLALCHEMY_ECHO: bool = False  # 是否打印 SQL 语句
     SQLALCHEMY_POOL_SIZE: int = 10  # 连接池大小
     SQLALCHEMY_MAX_OVERFLOW: int = 20   # 最大连接数
-    SQLALCHEMY_POOL_PREPING: bool = True  # 预连接，防止连接断开
+    SQLALCHEMY_POOL_PRE_PING: bool = True  # 预连接，防止连接断开
 
     # ---- Pagination defaults ----
     PAGE_SIZE_DEFAULT: int = 20  # 默认每页条数

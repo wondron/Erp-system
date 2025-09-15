@@ -68,10 +68,10 @@ cd /d D:\01-code\Erp-system\backend
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ``` bash
-set "PROJECT_ROOT=D:\01-code\Erp-system\backend"
-set "PYTHONPATH=%PROJECT_ROOT%"
-set "PYTHONUNBUFFERED=1"
-set "REDIS_URL=redis://localhost:6379/0"
+set PROJECT_ROOT=D:\01-code\Erp-system\backend
+set PYTHONPATH=%PROJECT_ROOT%
+set PYTHONUNBUFFERED=1
+set REDIS_URL=redis://localhost:6379/0
 cd /d %PROJECT_ROOT%
 rq worker -u %REDIS_URL% default --worker-class rq.SimpleWorker -P %PROJECT_ROOT%
 ```
@@ -120,3 +120,54 @@ docker compose -f docker-compose-prod.yml logs -f backend worker postgres
 | 删除容器           | `docker rm <容器名/ID>`                 |
 | 进入容器           | `docker exec -it <容器名> bash`（或 `sh`） |
 | 退出容器终端         | `exit` 或 `Ctrl+D`                    |
+
+
+
+  {
+    "销售信息": {
+      "大类目": "家居",
+      "小品类": "家居服",
+      "季节性": "冬季",
+      "产品": "Kumori-法莱绒家居服（老款）-灰M",
+      "销售渠道": "VC",
+      "责任人": "周叶鲁",
+      "SKU": "810101409417",
+      "ASIN": "B0DCB7VVZW",
+      "产品条码": "810101409417",
+      "自定义箱唛": "FLRJJF-HS-M",
+      "货号": "SG-MH-KM-F",
+      "颜色": "アイボリー",
+      "尺寸": "M",
+      "销售价": 2980
+    },
+    "供应信息": {
+      "供应商": "常熟市新韵纺织品有限公司",
+      "采购价": 43,
+      "单品包装尺寸": "35*25*10",
+      "单品包装重量": 0.85,
+      "装箱系数": 20,
+      "外箱长": 65,
+      "外箱宽": 53,
+      "外箱高": 38
+    },
+    "报关信息": {
+      "中文品名": "家居服",
+      "英文品名": "Roomwear",
+      "海关编码": "6108320000",
+      "申报要素": "1|0|针织印花|家居服|男女通用|100%聚酯纤维|无中文品牌Kumori",
+      "申报价": 860,
+      "图片": "另外上传"
+    },
+    "生产配套": {
+      "材料1": "300g双面法莱绒\\205cm\\半消光\\有导电丝\\满穿-灰",
+      "材料1用量": 0.95,
+      "材料2": "洗标",
+      "材料2用量": 1,
+      "材料3": "树脂扣-白色",
+      "材料3用量": 5,
+      "材料4": "【極暖】彩卡",
+      "材料4用量": 1,
+      "材料5": "【NL】印花拉链袋-30＊40",
+      "材料5用量": 1
+    }
+  }

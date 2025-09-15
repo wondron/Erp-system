@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Optional
 
@@ -40,6 +40,7 @@ class AddUser(BaseModel):
     showname: str = Field(..., min_length=1, max_length=64)
     userrole: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=1, max_length=64)
+    comfirm: str = Field(..., min_length=1, max_length=64)
 
 class TokenPair(BaseModel):
     access_token: str
@@ -58,8 +59,9 @@ class LoginResponse(BaseModel):
 # ---------- Token 工具 ----------
 def _create_jwt(payload: dict, expires_delta: timedelta) -> str:
     to_encode = payload.copy()
-    to_encode["iat"] = int(datetime.timezone.utc.timestamp())
-    to_encode["exp"] = int((datetime.timezone.utc + expires_delta).timestamp())
+    now = datetime.now(timezone.utc)
+    to_encode["iat"] = int(now.timestamp())
+    to_encode["exp"] = int((now + expires_delta).timestamp())
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALG)
 
 def create_access_token(*, user_id: int | str, username: str, role: str) -> str:
@@ -80,15 +82,18 @@ def create_refresh_token(*, user_id: int | str, username: str, role: str) -> str
 async def create_user(
     body: AddUser,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = RequestCtx,   # 可选：要求管理员
+    # ctx: RequestContext = RequestCtx,   # 可选：要求管理员
 ):
     # 可选的管理员校验
-    if REQUIRE_ADMIN_FOR_CREATE:
-        role_names = set((ctx.roles or [])) | ({ctx.username} if ctx.username else set())
-        # 允许的管理员判断：token 里的 role=admin 或 authorities/scope 中包含 admin
-        is_admin = ("admin" in role_names) or (getattr(ctx, "user_id", None) in {"1"})  # 例：ID=1 也算管理员
-        if not is_admin:
-            raise HTTPException(status_code=403, detail="只有管理员才能创建用户")
+    # if REQUIRE_ADMIN_FOR_CREATE:
+    #     role_names = set((ctx.roles or [])) | ({ctx.username} if ctx.username else set())
+    #     # 允许的管理员判断：token 里的 role=admin 或 authorities/scope 中包含 admin
+    #     is_admin = ("admin" in role_names) or (getattr(ctx, "user_id", None) in {"1"})  # 例：ID=1 也算管理员
+    #     if not is_admin:
+    #         raise HTTPException(status_code=403, detail="只有管理员才能创建用户")
+    logger.info("创建用户: %s", body)
+    if body.password != body.comfirm:
+        raise HTTPException(status_code=403, detail="两次输入的密码不一致")
 
     repo = LoginRepo(db)
     try:
