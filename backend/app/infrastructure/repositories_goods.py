@@ -15,6 +15,9 @@ from openpyxl.styles import Alignment  # 如需自动换行可用
 from app.domain.models import GoodsIn
 from app.infrastructure.orm_models import Goods, SupplyInfo, CustomsInfo, MaterialUsage, GoodsRaw
 
+from app.app_tasks.barcode.gen_barcode import build_barcode_pdf, LabelRow
+from app.app_tasks.barcode.gen_xiangmai import build_carton_mark_pdf, xLabelRow
+from fastapi import HTTPException
 # === 新增：使用模板导出服务（pandas + openpyxl 由 goods_outporter 负责） ===
 from io import BytesIO
 from app.infrastructure.services.goods_outporter import (
@@ -403,27 +406,46 @@ async def get_goods_by_sku(session: AsyncSession, sku: str) -> Goods | None:
     return res.scalar_one_or_none()
 
 
+
+#------------------------------- 导出 PDF --------------------------------
+async def export_goods_pdf(session: AsyncSession, barcode: str) -> BytesIO:
+    rows = await get_goods_by_barcodes(session, [barcode])
+    if not rows:
+        # 用 HTTPException 让 FastAPI 正确返回 404，而不是让中间件捕获 ValueError
+        raise HTTPException(status_code=404, detail=f"未找到条码 {barcode} 对应的商品")
+
+    g = rows[0]
+    info = LabelRow(g.color or "", g.size or "", g.barcode or "")
+
+    # ✅ 改成位置参数；若函数只接收一个参数，就去掉 False
+    pdf_bytes = build_barcode_pdf([info] * 24, False)
+
+    buf = BytesIO(pdf_bytes)
+    buf.seek(0)  # 保险起见，确保从头开始读
+    return buf
+    
+    
+
+async def export_carton_pdf(session: AsyncSession, barcode: str) -> BytesIO:
+    goods_list = await get_goods_by_barcodes(session, [barcode])
+    if not goods_list:
+        raise HTTPException(status_code=404, detail=f"未找到条码 {barcode} 对应的商品")
+
+    g = goods_list[0]
+    info = xLabelRow(g.carton_mark or "", g.color or "", g.size or "", g.barcode or "")
+
+    # 每页 6 个箱唛
+    print_data = [info] * 6
+
+    # ⚠️ 根据实际函数签名来决定是否传第二个参数
+    pdf_bytes = build_carton_mark_pdf(print_data)   # 如果定义里只有 print_data
+    # pdf_bytes = build_carton_mark_pdf(print_data, False)  # 如果定义里允许第二个参数
+
+    buf = BytesIO(pdf_bytes)
+    buf.seek(0)
+    return buf
+
 # ------------------------------ 导出 Excel ------------------------------
-def export_goods_xlsx(goods_list: List[Goods]) -> BytesIO:
-    """
-    兼容旧签名：将 Goods 列表导出为 Excel。
-    实现上使用 goods_outporter.export_from_goods_list（遵循 1111.xlsx 模板列顺序）。
-    追加：自动适配列宽，保证列宽能显示完整文字（中/日文全角按2个字符宽估算）。
-    """
-    base_data: bytes = export_from_goods_list(goods_list, sheet_name="Sheet1")
-
-    # 这里可以按需调整 padding/min/max/wrap_long_text
-    tuned: bytes = _apply_autofit_on_xlsx_bytes(
-        base_data,
-        sheet_name="Sheet1",
-        padding=2.0,
-        min_width=8.0,
-        max_width=100.0,
-        wrap_long_text=False,   # 如果你更希望强制整段可见（增高行高），可改为 True
-    )
-    return BytesIO(tuned)
-
-
 async def export_goods_xlsx_by_barcodes(
     session: AsyncSession,
     barcodes: Sequence[str],

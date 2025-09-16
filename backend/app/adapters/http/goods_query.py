@@ -20,6 +20,8 @@ from app.infrastructure.repositories_goods import (
     delete_goods_by_barcodes,
     serialize_goods,
     export_goods_xlsx_by_barcodes,  # ★ 新增：把查询结果导出成 Excel
+    export_carton_pdf,
+    export_goods_pdf,
 )
 
 # 如果你使用了“轻量 Update Schema”，记得从对应位置导入：
@@ -139,6 +141,41 @@ async def export_goods_by_barcodes_api(
     return StreamingResponse(
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+    
+    
+@router.post("/export/product-label", summary="根据条码导出产品贴 PDF")
+async def export_product_label(
+    barcode: str,
+    session: AsyncSession = Depends(get_db),
+):
+    stream = await export_goods_pdf(session, barcode)
+    ts = datetime.now().strftime("%y%m%d%H%M")   # 例如 2509161945
+    filename = f"product-label-{ts}.pdf"
+
+    return StreamingResponse(
+        stream,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+@router.post("/export/carton-mark", summary="根据条码导出箱唛 PDF")
+async def export_carton_mark(
+    barcode: str,
+    session: AsyncSession = Depends(get_db),
+):
+    stream = await export_carton_pdf(session, barcode)  # 这里调用你写的 export_carton_pdf
+    ts = datetime.now().strftime("%y%m%d%H%M")
+    filename = f"carton-mark-{ts}.pdf"
+
+    return StreamingResponse(
+        stream,
+        media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"'
         },

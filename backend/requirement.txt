@@ -25,3 +25,6 @@ pillow
 openpyxl
 PyJWT
 opencv-python
+reportlab
+barcode
+python-barcode
