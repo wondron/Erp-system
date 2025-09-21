@@ -1,12 +1,17 @@
 # app/adapters/http/goods_query.py
 from __future__ import annotations
-from typing import List, Optional, Any
+from typing import Literal, List, Optional
+from decimal import Decimal
 from datetime import datetime
+from pathlib import Path
+import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse, FileResponse
+from pydantic import BaseModel, Field
+from types import SimpleNamespace as NS
 from sqlalchemy.ext.asyncio import AsyncSession
+from dataclasses import dataclass
 
 # 异步会话依赖
 from app.infrastructure.db import get_db
@@ -22,6 +27,7 @@ from app.infrastructure.repositories_goods import (
     export_goods_xlsx_by_barcodes,  # ★ 新增：把查询结果导出成 Excel
     export_carton_pdf,
     export_goods_pdf,
+    export_labels_pdf,
 )
 
 # 如果你使用了“轻量 Update Schema”，记得从对应位置导入：
@@ -61,46 +67,143 @@ async def goods_by_barcodes(
 
 
 # ------------------------------ 3) 根据产品条码更新 ------------------------------
-class GoodsUpdateAny(BaseModel):
-    # 兼容你之前的结构：四大块字段都可选
-    销售信息: Optional[dict] = None
-    供应信息: Optional[dict] = None
-    报关信息: Optional[dict] = None
-    生产配套: Optional[dict] = None
-    replace_materials: bool = True
+class SupplyBlock(BaseModel):
+    vendor: Optional[str] = None
+    purchase_price: Optional[float] = None
+    pkg_size: Optional[str] = None
+    pkg_weight: Optional[float] = None
+    packing_ratio: Optional[int] = None
+    carton_l: Optional[int] = None
+    carton_w: Optional[int] = None
+    carton_h: Optional[int] = None
+
+class CustomsBlock(BaseModel):
+    name_cn: Optional[str] = None
+    name_en: Optional[str] = None
+    hscode: Optional[str] = None
+    declaration: Optional[str] = None
+    declared_price: Optional[float] = None
+    image_note: Optional[str] = None
+
+class MaterialItem(BaseModel):
+    name: str = Field(..., description="材料名称，对应 material_name")
+    qty: float = Field(..., description="用量，对应 quantity")
+
+class GoodsSerializedIn(BaseModel):
+    # 核心字段（全部可选以便做“部分更新”；若你想强制某些字段必填可改为必填）
+    id: Optional[int] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    season: Optional[str] = None
+    product_name: Optional[str] = None
+    channel: Optional[str] = None
+    owner: Optional[str] = None
+    sku: Optional[str] = None
+    asin: Optional[str] = None
+    barcode: Optional[str] = None
+    carton_mark: Optional[str] = None
+    item_no: Optional[str] = None
+    color: Optional[str] = None
+    size: Optional[str] = None
+    sale_price: Optional[float] = None
+
+    # 嵌套块
+    supply: Optional[SupplyBlock] = None
+    customs: Optional[CustomsBlock] = None
+    materials: Optional[List[MaterialItem]] = None
 
 
-@router.put("/by-barcode/{barcode}", summary="根据产品条码和json数据修改信息")
+@dataclass
+class _Patch:
+    销售信息: object | None = None
+    供应信息: object | None = None
+    报关信息: object | None = None
+    生产配套: object | None = None
+    replace_materials: bool = True   # 默认 True：替换模式
+
+
+@router.put("/by-barcode/{barcode}", summary="根据产品条码和 JSON 数据修改信息（按 serialize_goods 结构）")
 async def update_by_barcode_api(
     barcode: str,
-    payload: GoodsUpdateAny,  # 或者替换成你的 GoodsUpdate
+    body: GoodsSerializedIn,
     session: AsyncSession = Depends(get_db),
+    replace_materials: bool = Query(True, description="是否全量替换材料"),
 ):
-    # 将 dict 动态装配成你仓储所需的 Pydantic 对象（若你已经有 GoodsUpdate 类，直接用它即可）
-    from app.domain.models import SalesInfoIn, SupplyInfoIn, CustomsInfoIn, ProductionIn
+    patch = _Patch(replace_materials=replace_materials)
 
-    class _Patch:
-        销售信息 = None
-        供应信息 = None
-        报关信息 = None
-        生产配套 = None
-        replace_materials: bool = payload.replace_materials
+    # ---- 销售信息（把英文字段映射到仓储期望的中文字段名）----
+    if any([
+        body.sku, body.asin, body.product_name, body.category, body.subcategory, body.carton_mark, body.item_no,
+        body.season, body.channel, body.owner, body.color, body.size, body.sale_price is not None
+    ]):
+        patch.销售信息 = NS(
+            SKU=body.sku,
+            ASIN=body.asin,
+            产品=body.product_name,
+            大类目=body.category,
+            小品类=body.subcategory,
+            季节性=body.season,
+            销售渠道=body.channel,
+            责任人=body.owner,
+            颜色=body.color,
+            尺寸=body.size,
+            销售价=(Decimal(str(body.sale_price)) if body.sale_price is not None else None),
+            产品条码=barcode,           # 以路径参数为准
+            自定义箱唛=body.carton_mark,
+            货号=body.item_no,
+        )
 
-    patch = _Patch()
-    if payload.销售信息 is not None:
-        patch.销售信息 = SalesInfoIn(**payload.销售信息)
-    if payload.供应信息 is not None:
-        patch.供应信息 = SupplyInfoIn(**payload.供应信息)
-    if payload.报关信息 is not None:
-        patch.报关信息 = CustomsInfoIn(**payload.报关信息)
-    if payload.生产配套 is not None:
-        # 兼容 RootModel
-        patch.生产配套 = ProductionIn(__root__=payload.生产配套)
+    # ---- 供应信息（supply → 中文字段）----
+    if body.supply is not None:
+        s = body.supply
+        patch.供应信息 = NS(
+            供应商=s.vendor,
+            采购价=(Decimal(str(s.purchase_price)) if s.purchase_price is not None else None),
+            单品包装尺寸=s.pkg_size,
+            单品包装重量=(Decimal(str(s.pkg_weight)) if s.pkg_weight is not None else None),
+            装箱系数=s.packing_ratio,
+            外箱长=s.carton_l,
+            外箱宽=s.carton_w,
+            外箱高=s.carton_h,
+        )
+
+    # ---- 报关信息（customs → 中文字段）----
+    if body.customs is not None:
+        c = body.customs
+        patch.报关信息 = NS(
+            中文品名=c.name_cn,
+            英文品名=c.name_en,
+            海关编码=c.hscode,
+            申报要素=c.declaration,
+            申报价=(Decimal(str(c.declared_price)) if c.declared_price is not None else None),
+            图片=c.image_note,
+        )
+
+    # ---- 生产配套（materials 列表 → 传给仓储；仓储侧下节会兼容 list）----
+    if body.materials is not None:
+        patch.生产配套 = [{"name": m.name, "qty": Decimal(str(m.qty))} for m in body.materials]
 
     g = await update_goods_by_barcode(session, barcode, patch)
     if not g:
         raise HTTPException(status_code=404, detail="商品不存在")
     return serialize_goods(g)
+
+
+
+#---------------------------------------------------------------------------------
+@router.get("/download_template", summary="下载商品导入模板")
+async def download_template():
+    BASE_DIR = Path(__file__).resolve().parents[2]   # backend/app
+    TEMPLATE_PATH = BASE_DIR / "app_tasks" / "resource" / "product_temp.xlsx"
+    if not TEMPLATE_PATH.exists():
+        raise HTTPException(status_code=404, detail="模板文件不存在")
+
+    return FileResponse(
+        path=TEMPLATE_PATH,
+        filename=TEMPLATE_PATH.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 
 
 # ------------------------------ 4) 根据产品条码删除 ------------------------------
@@ -172,6 +275,59 @@ async def export_carton_mark(
     stream = await export_carton_pdf(session, barcode)  # 这里调用你写的 export_carton_pdf
     ts = datetime.now().strftime("%y%m%d%H%M")
     filename = f"carton-mark-{ts}.pdf"
+
+    return StreamingResponse(
+        stream,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+
+# ------------------------------ 6) 根据条码和数量打印PDF ------------------------------
+class ExportNum(BaseModel): 
+    name: str = Field(..., description="要打印的条码或箱唛") 
+    qty: int = Field(..., gt=0, description="数量(>0)") 
+
+class DayinData(BaseModel): 
+    materials: Optional[List[ExportNum]] = None 
+
+@router.put("/print_pdf", summary="根据产品条码或箱唛和数量生成商品条码PDF")
+async def generate_labels_pdf(
+    body: DayinData,
+    session: AsyncSession = Depends(get_db),
+    label_type: Literal["barcode", "carton_mark"] = Query(
+        "barcode",
+        description="选择按条码(barcode) 还是按箱唛(carton_mark) 生成标签"
+    ),
+):
+    items = body.materials or []
+    if not items:
+        raise HTTPException(status_code=400, detail="未输入任何条码或箱唛")
+    
+    print_data = {}
+    add_num = 0
+    for item in items:
+        if item.qty == -1:
+            if label_type == 'barcode':
+                add_num = 24
+            else:
+                add_num = 6
+        else:
+            if label_type == 'barcode':
+                add_num = math.ceil(item.qty / 23) * 24
+            else:
+                add_num = item.qty
+
+        if item.name in print_data:
+            print_data[item.name] += add_num
+        else:
+            print_data[item.name] = add_num
+
+    stream = await export_labels_pdf(session, print_data, label_type)
+    ts = datetime.now().strftime("%y%m%d%H%M")
+    filename = f"pdf-{ts}.pdf"
 
     return StreamingResponse(
         stream,

@@ -1,10 +1,9 @@
 # app/infrastructure/repositories_goods.py
 from __future__ import annotations
-from typing import Any, Sequence, List
 import logging
 import math
 from decimal import Decimal
-
+from typing import Any, Dict, List, Optional, Literal, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,9 +13,11 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment  # 如需自动换行可用
 from app.domain.models import GoodsIn
 from app.infrastructure.orm_models import Goods, SupplyInfo, CustomsInfo, MaterialUsage, GoodsRaw
+from sqlalchemy.exc import IntegrityError
+from dataclasses import dataclass
 
-from app.app_tasks.barcode.gen_barcode import build_barcode_pdf, LabelRow
-from app.app_tasks.barcode.gen_xiangmai import build_carton_mark_pdf, xLabelRow
+from app.app_tasks.barcode_task.gen_barcode import build_barcode_pdf, LabelRow
+from app.app_tasks.barcode_task.gen_xiangmai import build_carton_mark_pdf, xLabelRow
 from fastapi import HTTPException
 # === 新增：使用模板导出服务（pandas + openpyxl 由 goods_outporter 负责） ===
 from io import BytesIO
@@ -92,15 +93,17 @@ def _apply_autofit_on_xlsx_bytes(data: bytes, *, sheet_name: str | None = None,
 def serialize_goods(g: Goods) -> dict:
     return {
         "id": g.id,
-        "sku": g.sku,
-        "asin": g.asin,
-        "barcode": g.barcode,
-        "product_name": g.product_name,
         "category": g.category,
         "subcategory": g.subcategory,
         "season": g.season,
+        "product_name": g.product_name,
         "channel": g.channel,
         "owner": g.owner,
+        "sku": g.sku,
+        "asin": g.asin,
+        "barcode": g.barcode,
+        "carton_mark": g.carton_mark,
+        'item_no': g.item_no,
         "color": g.color,
         "size": g.size,
         "sale_price": float(g.sale_price) if g.sale_price is not None else None,
@@ -124,6 +127,9 @@ def serialize_goods(g: Goods) -> dict:
         },
         "materials": [{"name": m.material_name, "qty": float(m.quantity)} for m in (g.materials or [])],
     }
+
+
+
 
 
 # ------------------------------ JSON 清洗 ------------------------------
@@ -239,84 +245,125 @@ async def update_goods_by_barcode(session: AsyncSession, barcode: str, update_pa
     q = await session.execute(
         select(Goods).where(Goods.barcode == barcode).options(*_with_rels())
     )
-    g: Goods | None = q.scalar_one_or_none()
+    g: Optional[Goods] = q.scalar_one_or_none()
     if not g:
         return None
 
     # ---------- 销售信息 ----------
     s = getattr(update_payload, "销售信息", None)
     if s:
-        if s.SKU is not None: g.sku = s.SKU
-        if s.ASIN is not None: g.asin = s.ASIN
-        if s.产品 is not None: g.product_name = s.产品
-        if s.大类目 is not None: g.category = s.大类目
-        if s.小品类 is not None: g.subcategory = s.小品类
-        if s.季节性 is not None: g.season = s.季节性
-        if s.销售渠道 is not None: g.channel = s.销售渠道
-        if s.责任人 is not None: g.owner = s.责任人
-        if s.颜色 is not None: g.color = s.颜色
-        if s.尺寸 is not None: g.size = s.尺寸
-        if s.销售价 is not None: g.sale_price = s.销售价
-        if s.产品条码 is not None: g.barcode = s.产品条码  # 如允许改条码
-        if s.自定义箱唛 is not None: g.carton_mark = s.自定义箱唛
-        if s.货号 is not None: g.item_no = s.货号
+        if getattr(s, "SKU", None) is not None: g.sku = s.SKU
+        if getattr(s, "ASIN", None) is not None: g.asin = s.ASIN
+        if getattr(s, "产品", None) is not None: g.product_name = s.产品
+        if getattr(s, "大类目", None) is not None: g.category = s.大类目
+        if getattr(s, "小品类", None) is not None: g.subcategory = s.小品类
+        if getattr(s, "季节性", None) is not None: g.season = s.季节性
+        if getattr(s, "销售渠道", None) is not None: g.channel = s.销售渠道
+        if getattr(s, "责任人", None) is not None: g.owner = s.责任人
+        if getattr(s, "颜色", None) is not None: g.color = s.颜色
+        if getattr(s, "尺寸", None) is not None: g.size = s.尺寸
+        if getattr(s, "销售价", None) is not None: g.sale_price = s.销售价
+        if getattr(s, "自定义箱唛", None) is not None: g.carton_mark = s.自定义箱唛
+        if getattr(s, "货号", None) is not None: g.item_no = s.货号
+        # 可选择允许改条码（注意唯一约束冲突）
+        new_barcode = getattr(s, "产品条码", None)
+        if new_barcode is not None and new_barcode != g.barcode:
+            g.barcode = new_barcode
 
     # ---------- 供应信息 ----------
     sup = getattr(update_payload, "供应信息", None)
     if sup:
         if not g.supply:
             g.supply = SupplyInfo()
-        if sup.供应商 is not None: g.supply.vendor = sup.供应商
-        if sup.采购价 is not None: g.supply.purchase_price = sup.采购价
-        if sup.单品包装尺寸 is not None: g.supply.pkg_size = sup.单品包装尺寸
-        if sup.单品包装重量 is not None: g.supply.pkg_weight = sup.单品包装重量
-        if sup.装箱系数 is not None: g.supply.packing_ratio = sup.装箱系数
-        if sup.外箱长 is not None: g.supply.carton_l = sup.外箱长
-        if sup.外箱宽 is not None: g.supply.carton_w = sup.外箱宽
-        if sup.外箱高 is not None: g.supply.carton_h = sup.外箱高
+        if getattr(sup, "供应商", None) is not None: g.supply.vendor = sup.供应商
+        if getattr(sup, "采购价", None) is not None: g.supply.purchase_price = sup.采购价
+        if getattr(sup, "单品包装尺寸", None) is not None: g.supply.pkg_size = sup.单品包装尺寸
+        if getattr(sup, "单品包装重量", None) is not None: g.supply.pkg_weight = sup.单品包装重量
+        if getattr(sup, "装箱系数", None) is not None: g.supply.packing_ratio = sup.装箱系数
+        if getattr(sup, "外箱长", None) is not None: g.supply.carton_l = sup.外箱长
+        if getattr(sup, "外箱宽", None) is not None: g.supply.carton_w = sup.外箱宽
+        if getattr(sup, "外箱高", None) is not None: g.supply.carton_h = sup.外箱高
 
     # ---------- 报关信息 ----------
     cs = getattr(update_payload, "报关信息", None)
     if cs:
         if not g.customs:
             g.customs = CustomsInfo()
-        if cs.中文品名 is not None: g.customs.name_cn = cs.中文品名
-        if cs.英文品名 is not None: g.customs.name_en = cs.英文品名
-        if cs.海关编码 is not None: g.customs.hscode = cs.海关编码
-        if cs.申报要素 is not None: g.customs.declaration = cs.申报要素
-        if cs.申报价 is not None: g.customs.declared_price = cs.申报价
-        if cs.图片 is not None: g.customs.image_note = cs.图片
+        if getattr(cs, "中文品名", None) is not None: g.customs.name_cn = cs.中文品名
+        if getattr(cs, "英文品名", None) is not None: g.customs.name_en = cs.英文品名
+        if getattr(cs, "海关编码", None) is not None: g.customs.hscode = cs.海关编码
+        if getattr(cs, "申报要素", None) is not None: g.customs.declaration = cs.申报要素
+        if getattr(cs, "申报价", None) is not None: g.customs.declared_price = cs.申报价
+        if getattr(cs, "图片", None) is not None: g.customs.image_note = cs.图片
 
     # ---------- 生产配套（材料） ----------
     prod = getattr(update_payload, "生产配套", None)
     replace_materials = getattr(update_payload, "replace_materials", True)
+
+    def _extract_material_pairs(p: Any) -> Dict[str, float]:
+        """
+        兼容多种输入：
+        1) RootModel: p.__root__ = list[{"name","qty"}] 或 dict(材料X/用量)
+        2) 对象有 root 属性
+        3) 直接传 list[{"name","qty"}]
+        4) 直接传 dict: {"材料1":"棉","材料1用量":1, ...}
+        """
+        # 1) 优先 RootModel.__root__
+        root = getattr(p, "__root__", None)
+        if root is None:
+            root = getattr(p, "root", None)
+        if root is None:
+            root = p
+
+        pairs: Dict[str, float] = {}
+
+        # list 形态
+        if isinstance(root, list):
+            for item in root:
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("材料")
+                    qty = item.get("qty") or item.get("用量")
+                    if name is not None and qty is not None:
+                        pairs[str(name)] = float(qty)
+            return pairs
+
+        # dict 形态：优先解析“材料X/材料X用量”
+        if isinstance(root, dict):
+            # 旧键值形态
+            for k, v in root.items():
+                ks = str(k)
+                if ks.startswith("材料") and not ks.endswith("用量"):
+                    idx = ks.replace("材料", "")
+                    qty = root.get(f"材料{idx}用量")
+                    if v is not None and qty is not None:
+                        pairs[str(v)] = float(qty)
+            # 若上面没解析出任何内容，再尝试通用键名
+            if not pairs:
+                name = root.get("name") or root.get("材料")
+                qty = root.get("qty") or root.get("用量")
+                if name is not None and qty is not None:
+                    pairs[str(name)] = float(qty)
+            return pairs
+
+        return pairs
+
     if prod:
-        # 兼容 RootModel 与 dict
-        root = getattr(prod, "root", None)
-        if root is None and isinstance(prod, dict):
-            root = prod
-        root = root or {}
-
-        # 解析“材料X / 材料X用量”
-        pairs: dict[str, float] = {}
-        for k, v in root.items():
-            ks = str(k)
-            if ks.startswith("材料") and not ks.endswith("用量"):
-                idx = ks.replace("材料", "")
-                qty = root.get(f"材料{idx}用量")
-                if v is not None and qty is not None:
-                    pairs[str(v)] = float(qty)
-
+        pairs = _extract_material_pairs(prod)
         if replace_materials:
-            # 先清空再重建
             for m in list(g.materials or []):
                 await session.delete(m)
             g.materials = []
-        # 追加/重建
         for name, qty in pairs.items():
             g.materials.append(MaterialUsage(material_name=name, quantity=qty))
 
-    await session.flush()
+    # ---------- flush ----------
+    try:
+        await session.flush()
+    except IntegrityError:
+        # 常见：条码改成已有值，触发 uq_goods_barcode 冲突
+        # 交给上层转换为 409 或返回友好错误
+        raise
+
     return g
 
 
@@ -439,11 +486,42 @@ async def export_carton_pdf(session: AsyncSession, barcode: str) -> BytesIO:
 
     # ⚠️ 根据实际函数签名来决定是否传第二个参数
     pdf_bytes = build_carton_mark_pdf(print_data)   # 如果定义里只有 print_data
-    # pdf_bytes = build_carton_mark_pdf(print_data, False)  # 如果定义里允许第二个参数
 
     buf = BytesIO(pdf_bytes)
     buf.seek(0)
     return buf
+
+
+async def export_labels_pdf(
+    session: AsyncSession,
+    items: Dict[str, int],
+    label_type: Literal["barcode", "carton_mark"],
+) -> BytesIO:
+    barcode_items = []
+
+    if label_type == 'barcode':
+        for barcode, count in items.items():
+            goods_list = await get_goods_by_barcodes(session, [barcode])
+            g = goods_list[0]
+            info = LabelRow(g.color or "", g.size or "", g.barcode or "")
+            barcode_items.extend([info] * count)
+        pdf_bytes = build_barcode_pdf(barcode_items, False)
+    elif label_type == 'carton_mark':
+        for barcode, count in items.items():
+            goods_list = await get_goods_by_barcodes(session, [barcode])
+            g = goods_list[0]
+            info = xLabelRow(g.carton_mark or "", g.color or "", g.size or "", g.barcode or "")
+            barcode_items.extend([info] * count)
+        pdf_bytes = build_carton_mark_pdf(barcode_items, False)
+    
+    buf = BytesIO(pdf_bytes)
+    buf.seek(0)
+    return buf
+
+
+
+
+
 
 # ------------------------------ 导出 Excel ------------------------------
 async def export_goods_xlsx_by_barcodes(

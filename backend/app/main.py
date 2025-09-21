@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.infrastructure.middleware import RequestIDMiddleware
 from fastapi.routing import APIRoute
+from fastapi.responses import RedirectResponse
 
 from app.core.config import get_settings
 from app.core.loggers import setup_logging
@@ -122,14 +123,9 @@ def ping(request: Request):
     }
 
 
-@app.get("/")
-def read_root():
-    return {
-        "app_name": settings.APP_NAME,
-        "env": settings.ENV,
-        "debug": settings.DEBUG,
-        "version": settings.VERSION
-    }
+@app.get("/", include_in_schema=False)
+def root_to_docs():
+    return RedirectResponse(url="/docs")
     
 if __name__ == "__main__":
     import uvicorn

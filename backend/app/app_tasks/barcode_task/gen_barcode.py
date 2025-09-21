@@ -23,7 +23,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from io import BytesIO
 from reportlab.lib.utils import ImageReader
-from barcode import get as bc_get
+import barcode  
 from barcode.writer import ImageWriter
 
 import logging
@@ -107,29 +107,38 @@ def draw_rect(c, x, y, w, h, color=colors.black):
 
 
 # ---------------- 单格贴纸 ----------------
-def _make_barcode_image(btype: str, data: str, *, dpi: int = 600, write_text: bool = False, quiet_zone: float = 0.0) -> ImageReader:
+def _make_barcode_image(
+    btype: str,
+    data: str,
+    *,
+    dpi: int = 600,
+    write_text: bool = False,
+    quiet_zone: float = 0.0
+) -> ImageReader:
     """
-    用 python-barcode 生成条形码图片（PNG），返回可喂给 reportlab 的 ImageReader。
-    - write_text=False：不生成底部数字（你自己排版）
-    - quiet_zone=0：尽量不留左右静区（规范上不推荐，请自行评估）
+    用 python-barcode 生成 PNG，返回 ImageReader。
+    - write_text=False：不由库渲染底部数字（我们自己排版）
+    - quiet_zone=0：尽量不留左右静区（规范上不推荐，按需调整）
     """
-    py_name = _PY_BARCODE_NAME.get(btype, None)
-    if py_name is None:
-        # 不认识的类型一律退回 Code128
-        py_name = "code128"
+    py_name = _PY_BARCODE_NAME.get(btype, "code128")
+    try:
+        BarcodeClass = barcode.get_barcode_class(py_name)
+    except Exception:
+        BarcodeClass = barcode.get_barcode_class("code128")
 
-    barcode_obj = bc_get(py_name, data, writer=ImageWriter())
+    bc = BarcodeClass(data, writer=ImageWriter())
     buf = BytesIO()
-    # writer options 文档：python-barcode 的 ImageWriter
-    # 常用：module_width/height, font_size, text_distance, quiet_zone, dpi, write_text
-    barcode_obj.write(buf, {
-        "write_text": write_text,
-        "quiet_zone": quiet_zone,
-        "dpi": dpi,
-        # 让竖条更清晰：可按需调小 module_width
-        # "module_width": 0.2,    # 默认 0.2 (mm) 左右（取决于实现）
-        # "module_height": 15.0,  # 实际高度我们用 drawImage 来控制，这里保持默认即可
-    })
+    bc.write(
+        buf,
+        {
+            "write_text": write_text,
+            "quiet_zone": quiet_zone,
+            "dpi": dpi,
+            # 可按需解注优化条纹粗细/高度：
+            # "module_width": 0.2,
+            # "module_height": 15.0,
+        },
+    )
     buf.seek(0)
     return ImageReader(buf)
         
@@ -196,8 +205,6 @@ def draw_one_label(c: canvas.Canvas, x: float, y: float, w: float, h: float, dat
     c.setFillColor(colors.black)
     c.drawString(cx, cy, human_text)
     
-
-
 # ---------------- 整页生成 ----------------
 def build_barcode_pdf(rows: Iterable[LabelRow], drawRects = False) -> bytes:
     buf = BytesIO()
