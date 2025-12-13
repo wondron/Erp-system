@@ -151,7 +151,7 @@ class BaoGuanBuilder():
         for item in extract_info:
             ywenstr = item.get('英文品名', '')
             zwenstr = item.get('中文品名', '')
-            hsCode  = item.get('HS CODE', '')
+            hsCode  = item.get('海关编码', '')
             show_name = f"{hsCode}{zwenstr}"
 
             price       = item.get('单价', 0)
@@ -159,7 +159,7 @@ class BaoGuanBuilder():
             jinWeight   = item.get('净重', 0)
             maoWeight   = item.get('毛重', 0)
             number      = item.get('数量', 0)
-            xinghao     = item.get('产品型号', '')
+            xinghao     = item.get('申报要素', '')
             xiangshu    = item.get('箱数', 0)
 
             key = (show_name, price, xinghao)
@@ -170,8 +170,8 @@ class BaoGuanBuilder():
                     '净重': jinWeight,
                     '毛重': maoWeight,
                     '箱数': xiangshu,
-                    '境内货源地': item.get('发货地', ''),
-                    '预约号': item.get('合同号码', ''),
+                    '境内货源地': item.get('境内货源地', ''),
+                    '预约号': item.get('预约号', ''),
                 }
             else:
                 total_data[key]['数量'] += number

@@ -42,6 +42,81 @@ def add_outer_border(ws, min_row, max_row, min_col, max_col, style="thin", color
             cell.border = Border(top=top, bottom=bottom, left=left, right=right)
 
 
+# def record_sheet(sheetobj, erweiData, start_row, start_col, fontConfig, alignment,
+#                  konggeDirect=Direction.HORIZONTAL, border=None, color=None, isMerge=True):
+#     # ---- 1-based 兜底 ----
+#     start_row = max(1, start_row)
+#     start_col = max(1, start_col)
+
+#     # 统一化方向：既兼容枚举也兼容传入字符串
+#     mode = konggeDirect.value if isinstance(konggeDirect, Direction) else str(konggeDirect).lower()
+
+#     merged = set()
+#     maxRow = 0
+
+#     # ---- 写入阶段 ----
+#     for r_offset, row in enumerate(erweiData):
+#         for c_offset, value in enumerate(row):
+#             r_idx = max(1, start_row + r_offset)
+#             c_idx = max(1, start_col + c_offset)
+#             if maxRow < r_idx:
+#                 maxRow = r_idx
+
+#             if value == "":
+#                 if not isMerge:
+#                     cell = sheetobj.cell(row=r_idx, column=c_idx, value=None)
+#                     if border:
+#                         cell.border = border
+#                 merged.add((r_idx, c_idx))
+#                 continue
+
+#             cell = sheetobj.cell(row=r_idx, column=c_idx, value=value)
+#             if fontConfig:
+#                 cell.font = fontConfig
+#             if alignment:
+#                 cell.alignment = alignment
+#             if border:
+#                 cell.border = border
+#             if color and value != 0:
+#                 cell.fill = color
+
+#     if not isMerge:
+#         return maxRow + 1
+
+#     # ---- 合并阶段（防越界）----
+#     sorted_merged = sorted(merged, key=lambda x: (-x[0], -x[1]))
+#     used_item = []
+
+#     for idRow, idCol in sorted_merged:
+#         if (idRow, idCol) in used_item:
+#             continue
+
+#         if mode == "horizontal":
+#             # 向左回溯，直到遇到非空；起点为“非空的右一格”
+#             test_col = idCol - 1
+#             while test_col >= 1:
+#                 v = sheetobj.cell(row=idRow, column=test_col).value
+#                 if v not in (None, ""):
+#                     break
+#                 used_item.append((idRow, test_col))
+#                 test_col -= 1
+#             start_c = max(1, test_col + 1)
+#             sheetobj.merge_cells(start_row=idRow, start_column=start_c, end_row=idRow, end_column=idCol)
+
+#         elif mode == "vertical":
+#             # 向上回溯，直到遇到非空；起点为“非空的下一格”
+#             test_row = idRow - 1
+#             while test_row >= 1:
+#                 v = sheetobj.cell(row=test_row, column=idCol).value
+#                 if v not in (None, ""):
+#                     break
+#                 used_item.append((test_row, idCol))
+#                 test_row -= 1
+#             start_r = max(1, test_row + 1)
+#             sheetobj.merge_cells(start_row=start_r, start_column=idCol, end_row=idRow, end_column=idCol)
+#     return maxRow + 1
+
+
 
 def record_sheet(sheetobj, erweiData, start_row, start_col, fontConfig, alignment, konggeDirect=Direction.HORIZONTAL, border=None, color=None, isMerge=True):
     merged = set()  # 记录已处理过的单元格，避免重复合并

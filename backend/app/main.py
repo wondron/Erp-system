@@ -21,7 +21,7 @@ setup_logging(force=True)
 settings = get_settings()
 logger = logging.getLogger(settings.APP_NAME)
 logger.setLevel(logging.INFO)
-
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 # ---------- helpers ----------
 def _fmt(v: Iterable | str | None) -> str:

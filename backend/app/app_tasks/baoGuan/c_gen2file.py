@@ -240,7 +240,7 @@ if __name__ == "__main__":
     builder = FaPiaoBuilder()
     xlsx_bytes = builder.detect(
         data_dicts,
-        data_dicts[0].get("合同号码", ""),
+        data_dicts[0].get("预约号", ""),
         gongzhang_source=r"app/app_tasks/resource/gonzhang.png",  # 也可传入 bytes/BytesIO
     )
 

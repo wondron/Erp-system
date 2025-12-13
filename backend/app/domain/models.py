@@ -14,6 +14,7 @@ from typing import Optional, Dict, Any, List
 class UserRole(str, Enum):
     USER = "user"         # 普通用户
     ADMIN = "admin"       # 管理员
+    SUPPLIER = "supplier" # 供应商
     MANAGER = "manager"   # 经理/管理角色
     STAFF = "staff"       # 员工
 

@@ -55,7 +55,7 @@ def setup_logging(
         datefmt = "%Y-%m-%dT%H:%M:%S"
     else:
         fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-        datefmt = "%Y-%m-%dT%H:%M:%S"
+        datefmt = "%Y-%m-%d %H:%M:%S"
 
     # 如需强制重配或首次配置：清理 root 现有 handlers，避免重复输出
     if force or not _LOGGING_CONFIGURED:

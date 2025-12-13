@@ -33,12 +33,12 @@ def _handle_excel_with_baoguan(raw: bytes) -> bytes:
     # 1) 解析 Excel 数据
     reader = ExcelReader(raw)
     data_dicts = reader.read_as_dicts()
-    hetong_no = data_dicts[0].get("合同号码", "") if data_dicts else ""
+    hetong_no = data_dicts[0].get("预约号", "") if data_dicts else ""
     logger.info(f"解析完成，共 {len(data_dicts)} 行数据")
     if data_dicts:
         preview = {k: data_dicts[0].get(k) for k in list(data_dicts[0].keys())[:5]}
         logger.info(f"首行预览: {preview}")
-    logger.info(f"合同号码: {hetong_no}")
+    logger.info(f"预约号: {hetong_no}")
 
     # 2) 构建 5 个 xlsx 二进制
     outputs: list[tuple[str, bytes]] = []
@@ -95,7 +95,7 @@ def _handle_excel_with_baoguan(raw: bytes) -> bytes:
 
 
 if __name__ == '__main__':
-    xlsx_path = r'D:\01-code\Erp-system\backend\app\app_tasks\resource\example.xlsx'
+    xlsx_path = '/data/Erp-system/backend/app/app_tasks/resource/template.xlsx'
 
     # 1) 读入 Excel 文件的二进制
     with open(xlsx_path, "rb") as f:
@@ -105,7 +105,7 @@ if __name__ == '__main__':
     zip_data = _handle_excel_with_baoguan(raw)
 
     # 3) 保存 zip 文件
-    out_path = r"D:/报关资料打包.zip"
+    out_path = "./报关资料打包.zip"
     with open(out_path, "wb") as f:
         f.write(zip_data)
 

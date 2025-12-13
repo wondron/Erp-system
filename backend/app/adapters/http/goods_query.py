@@ -4,7 +4,7 @@ from typing import Literal, List, Optional
 from decimal import Decimal
 from datetime import datetime
 from pathlib import Path
-import math
+import math, logging, os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse
@@ -28,6 +28,7 @@ from app.infrastructure.repositories_goods import (
     export_carton_pdf,
     export_goods_pdf,
     export_labels_pdf,
+    list_goods_with_count,
 )
 
 # 如果你使用了“轻量 Update Schema”，记得从对应位置导入：
@@ -35,19 +36,28 @@ from app.infrastructure.repositories_goods import (
 from app.domain.models import GoodsIn  # 也可以用你已存在的 Update 版 Schema
 
 router = APIRouter(prefix="/goods", tags=["goods"])
+logger = logging.getLogger('repo.goods')
 
 # ------------------------------ 1) 获取所有商品（分页） ------------------------------
-@router.get("", summary="获取所有商品信息（分页）")
+@router.get("", summary="获取所有商品信息（分页+排序+总数）")
 async def get_all_goods(
     page: int = Query(1, ge=1, description="页码，从1开始"),
     size: int = Query(50, ge=1, le=200, description="每页条数"),
+    order_by: str = Query("id", description="排序字段名，例如 sku, asin, barcode, sale_price等"),
+    order: str = Query("desc", pattern="^(asc|desc)$", description="排序顺序 asc 或 倒序 desc"),
     session: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * size
-    items = await list_goods(session, offset=offset, limit=size)
+    items, total = await list_goods_with_count(
+        session, offset=offset, limit=size, order_by=order_by, order=order
+    )
+    logger.info(f"获取商品列表 page={page}, size={size}, total={total}, order_by={order_by} {order}")
     return {
         "page": page,
         "size": size,
+        "total": total,
+        "order_by": order_by,
+        "order": order,
         "items": [serialize_goods(g) for g in items],
     }
 
@@ -255,6 +265,7 @@ async def export_product_label(
     barcode: str,
     session: AsyncSession = Depends(get_db),
 ):
+    logger.info(f'调用export_product_label，barcode:{barcode}')
     stream = await export_goods_pdf(session, barcode)
     ts = datetime.now().strftime("%y%m%d%H%M")   # 例如 2509161945
     filename = f"product-label-{ts}.pdf"
@@ -298,11 +309,13 @@ async def generate_labels_pdf(
     body: DayinData,
     session: AsyncSession = Depends(get_db),
     label_type: Literal["barcode", "carton_mark"] = Query(
-        "barcode",
+        "carton_mark",
         description="选择按条码(barcode) 还是按箱唛(carton_mark) 生成标签"
     ),
 ):
+    # label_type = 'carton_mark'
     items = body.materials or []
+    logger.info(f'调用generate_labels_pdf，items:{items}, type:{label_type}')
     if not items:
         raise HTTPException(status_code=400, detail="未输入任何条码或箱唛")
     
@@ -318,7 +331,7 @@ async def generate_labels_pdf(
             if label_type == 'barcode':
                 add_num = math.ceil(item.qty / 23) * 24
             else:
-                add_num = item.qty
+                add_num = math.ceil(item.qty / 6) * 6
 
         if item.name in print_data:
             print_data[item.name] += add_num
@@ -327,7 +340,16 @@ async def generate_labels_pdf(
 
     stream = await export_labels_pdf(session, print_data, label_type)
     ts = datetime.now().strftime("%y%m%d%H%M")
+
     filename = f"pdf-{ts}.pdf"
+    # save_dir = "/data/Erp-system/export"
+    # os.makedirs(save_dir, exist_ok=True)
+    # save_path = os.path.join(save_dir, filename)
+    # # 注意：stream 是一个 BytesIO 对象
+    # stream.seek(0)
+    # with open(save_path, "wb") as f:
+    #     f.write(stream.read())
+    # stream.seek(0)  # 重置指针供后续 StreamingResponse 读取
 
     return StreamingResponse(
         stream,

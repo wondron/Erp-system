@@ -266,7 +266,7 @@ if __name__ == "__main__":
     data_dicts = reader.read_as_dicts()
     
     builder = HeTongBuilder()
-    xlsx_bytes = builder.detect(data_dicts, data_dicts[0]['合同号码'], gongzhang_path="app/app_tasks/resource/gonzhang.png")
+    xlsx_bytes = builder.detect(data_dicts, data_dicts[0]['预约号'], gongzhang_path="app/app_tasks/resource/gonzhang.png")
 
     with open('4-合同样板.xlsx', 'wb') as f:
         f.write(xlsx_bytes)

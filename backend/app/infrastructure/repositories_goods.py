@@ -4,7 +4,7 @@ import logging
 import math
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Literal, Sequence
-from sqlalchemy import select
+from sqlalchemy import select, func, asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import unicodedata
@@ -175,6 +175,39 @@ def _with_rels():
 
 
 # ------------------------------ 仓储 API ------------------------------
+async def list_goods_with_count(
+    session: AsyncSession,
+    *,
+    offset: int = 0,
+    limit: int = 100,
+    order_by: str = "id",
+    order: str = "desc"
+) -> tuple[list[Goods], int]:
+    """分页 + 总数 + 排序"""
+    # --- 安全地映射字段名，防止 SQL 注入 ---
+    valid_columns = {c.name for c in Goods.__table__.columns}
+    if order_by not in valid_columns:
+        order_by = "id"
+    order_func = desc if order.lower() == "desc" else asc
+
+    # --- 总数查询 ---
+    total_stmt = select(func.count()).select_from(Goods)
+    total_res = await session.execute(total_stmt)
+    total = total_res.scalar_one()
+
+    # --- 主查询 ---
+    stmt = (
+        select(Goods)
+        .options(*_with_rels())
+        .order_by(order_func(getattr(Goods, order_by)))
+        .offset(offset)
+        .limit(limit)
+    )
+    res = await session.execute(stmt)
+    items = res.scalars().unique().all()
+    return items, total
+
+
 async def list_goods(session: AsyncSession, *, offset: int = 0, limit: int = 100) -> list[Goods]:
     stmt = select(Goods).options(*_with_rels()).offset(offset).limit(limit)
     res = await session.execute(stmt)
@@ -498,12 +531,13 @@ async def export_labels_pdf(
     label_type: Literal["barcode", "carton_mark"],
 ) -> BytesIO:
     barcode_items = []
-
+    logger.info(f'调用export_labels_pdf，items:{items}, type:{label_type}')
     if label_type == 'barcode':
         for barcode, count in items.items():
             goods_list = await get_goods_by_barcodes(session, [barcode])
             g = goods_list[0]
             info = LabelRow(g.color or "", g.size or "", g.barcode or "")
+            logger.info(f'条码信息：{info}')
             barcode_items.extend([info] * count)
         pdf_bytes = build_barcode_pdf(barcode_items, False)
     elif label_type == 'carton_mark':
@@ -511,6 +545,7 @@ async def export_labels_pdf(
             goods_list = await get_goods_by_barcodes(session, [barcode])
             g = goods_list[0]
             info = xLabelRow(g.carton_mark or "", g.color or "", g.size or "", g.barcode or "")
+            logger.info(f'箱唛信息：{info}')
             barcode_items.extend([info] * count)
         pdf_bytes = build_carton_mark_pdf(barcode_items, False)
     

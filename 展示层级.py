@@ -66,10 +66,10 @@ def tree(
 
 # ============ 示例 ============
 if __name__ == "__main__":
-    root = r"backend"
+    root = r"D:\01-code\01-java\FoodMaterialDetect\app\src\main\cpp"
     # 文件名或路径里包含这些子串的文件会被隐藏（举例）
-    exclude_files = {".pyc", ".log"}
+    exclude_files = {".pyc", ".log", 'img', 'hpp'}
     # 目录路径里包含这些子串的目录会整棵隐藏（举例）
-    exclude_dirs = {"__pycache__", ".git", ".vscode", r"data", r"postgresql", r"Scripts", r".venv", r"Lib", 'global', '.env', 'fonts', 'baoGuan'}
+    exclude_dirs = {"__pycache__", ".git", ".vscode", r"flann", r"gapi", r"Scripts", r".venv", r"dnn", 'core', '.env', 'img', 'hpp'}
 
     print(tree(root, exclude_files, exclude_dirs))

@@ -38,21 +38,31 @@ try:
     font_path = base_dir.parent / "fonts" / "SourceHanSansCN-Medium.ttf"
     pdfmetrics.registerFont(TTFont("Sans-Medium", str(font_path)))
     FONT_NAME = "Sans-Medium"
+
     font_path = base_dir.parent / "fonts" / "SourceHanSansCN-Heavy.ttf"
     pdfmetrics.registerFont(TTFont("SourceHanSansCN-Heavy", str(font_path)))
     FONT_NAME_TITLE = "SourceHanSansCN-Heavy"
 except Exception as e:
     logger.error("字体加载失败，使用默认字体: %s", e)
     try:
-        pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))  # 日文ゴシック
+        # 尝试日文字体
+        pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
         FONT_NAME = "HeiseiKakuGo-W5"
+
+        # 同时注册一个“重”字体用于标题
+        pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))  # 明朝体稍显厚重，可作Heavy替代
+        FONT_NAME_TITLE = "HeiseiMin-W3"
     except Exception:
-        # 优先尝试微软雅黑
+        # 优先尝试微软雅黑（常规+粗体）
         try:
             pdfmetrics.registerFont(TTFont("MicrosoftYaHei", "msyh.ttc"))
+            pdfmetrics.registerFont(TTFont("MicrosoftYaHei-Bold", "msyhbd.ttc"))
             FONT_NAME = "MicrosoftYaHei"
+            FONT_NAME_TITLE = "MicrosoftYaHei-Bold"
         except Exception:
-            FONT_NAME = "Helvetica"  # 最后兜底（不保证 CJK）
+            # 最后兜底（英文字体）
+            FONT_NAME = "Helvetica"
+            FONT_NAME_TITLE = "Helvetica-Bold"
 
 
 
@@ -74,6 +84,51 @@ _PY_BARCODE_NAME = {
     "CODE128": "code128",
     "CODE39": "code39",
 }
+
+# ---------------- 字体缩放 ----------------
+def fit_font_size(text: str, font_name: str, max_width_pt: float,
+                  max_size: float = 12.0, min_size: float = 8.0, step: float = 0.5) -> float:
+    """
+    根据字符串实际宽度动态计算可用字号（单位：pt）。
+    优先返回 <= max_size 的最大可用字号；若即便 min_size 也放不下，则返回 min_size。
+    """
+    if not text:
+        return max_size
+    size = max_size
+    while size >= min_size:
+        width = pdfmetrics.stringWidth(text, font_name, size)
+        if width <= max_width_pt:
+            return size
+        size -= step
+    return min_size
+
+def truncate_to_width(text: str, font_name: str, font_size: float,
+                      max_width_pt: float, ellipsis: str = "…") -> str:
+    """
+    按“实际宽度”截断，并加省略号；尽量保留可见字符。
+    """
+    if not text:
+        return text
+    w = pdfmetrics.stringWidth(text, font_name, font_size)
+    if w <= max_width_pt:
+        return text
+
+    # 先预留省略号宽度
+    ell_w = pdfmetrics.stringWidth(ellipsis, font_name, font_size)
+    limit = max_width_pt - ell_w
+    if limit <= 0:
+        return ellipsis
+
+    # 线性裁剪（字符串通常不长，够快）；如需更快可改二分
+    buf = []
+    cur = 0.0
+    for ch in text:
+        ch_w = pdfmetrics.stringWidth(ch, font_name, font_size)
+        if cur + ch_w > limit:
+            break
+        buf.append(ch)
+        cur += ch_w
+    return "".join(buf) + ellipsis
 
 
 # ---------------- 小工具 ----------------
@@ -184,14 +239,19 @@ def draw_one_label(c: canvas.Canvas, x: float, y: float, w: float, h: float, dat
     cx = mx + (mw - cw) / 2.0
     cy = my
     
-    font_scale = 11
-    
+    max_line_width = cw
+    color_text = _truncate(data.color) if data.color else ""
+    color_font_size = fit_font_size(color_text, FONT_NAME, max_line_width, max_size=11, min_size=8, step=0.5)
+    color_text_draw = truncate_to_width(color_text, FONT_NAME, color_font_size, max_line_width)
     # ---- 头部两行 ----
     c.setFillColor(colors.black)
-    c.setFont(FONT_NAME, font_scale)
+    c.setFont(FONT_NAME, color_font_size)
     # 你之前用的是绝对数值 30.5 / 26 mm，这里保留但也可用相对计算更稳
     if data.color:
-        c.drawString(cx, cy + 30.5 * mm, _truncate(data.color))
+        c.drawString(cx, cy + 30.5 * mm, _truncate(color_text_draw))
+
+
+    c.setFont(FONT_NAME, 11)
     if data.size:
         c.drawString(cx, cy + 26.0 * mm, _truncate(data.size))
 
