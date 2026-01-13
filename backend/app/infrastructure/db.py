@@ -5,7 +5,7 @@ import json
 import logging
 from typing import AsyncGenerator, AsyncIterator, Iterable
 from contextlib import asynccontextmanager
-
+from sqlalchemy.exc import SQLAlchemyError, PendingRollbackError
 from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import (
@@ -74,11 +74,37 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as db:
         try:
             yield db
-            await db.commit()
-        except Exception:
-            await db.rollback()
-            logger.exception("DB session rolled back due to an exception.")
+
+            # ✅ 没有事务/没有改动时就不 commit（更干净）
+            # SQLAlchemy async session 有 in_transaction()
+            if db.in_transaction():
+                await db.commit()
+
+        except PendingRollbackError as e:
+            # ✅ 典型：之前 flush 已失败，commit 时触发
+            # 这里强制 rollback，避免 session 卡死
+            try:
+                await db.rollback()
+            except Exception:
+                logger.exception("DB rollback failed after PendingRollbackError.")
+            logger.exception("DB commit failed (PendingRollbackError). Original: %s", e)
             raise
+
+        except Exception as e:
+            # ✅ 任何异常都 rollback，避免连接复用时污染后续请求
+            try:
+                await db.rollback()
+            except Exception:
+                logger.exception("DB rollback failed after exception.")
+            logger.exception("DB session rolled back due to an exception: %s", e)
+            raise
+
+        finally:
+            # ✅ 显式 close（async with 也会做，但这里更明确）
+            try:
+                await db.close()
+            except Exception:
+                logger.exception("DB close failed.")
 
 
 # =========================================================

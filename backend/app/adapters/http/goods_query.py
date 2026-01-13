@@ -5,13 +5,15 @@ from decimal import Decimal
 from datetime import datetime
 from pathlib import Path
 import math, logging, os
-
+from types import SimpleNamespace as NS
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from types import SimpleNamespace as NS
 from sqlalchemy.ext.asyncio import AsyncSession
 from dataclasses import dataclass
+from sqlalchemy import select
+from app.infrastructure.orm_models import Goods
 
 # 异步会话依赖
 from app.infrastructure.db import get_db
@@ -96,8 +98,14 @@ class CustomsBlock(BaseModel):
     image_note: Optional[str] = None
 
 class MaterialItem(BaseModel):
-    name: str = Field(..., description="材料名称，对应 material_name")
-    qty: float = Field(..., description="用量，对应 quantity")
+    name: str = Field(..., description="材料名称")
+    qty: Decimal = Field(..., description="用量")
+    unit: Optional[str] = Field(None, description="用量单位；不传默认=件")
+
+    @field_validator("unit", mode="before")
+    @classmethod
+    def default_unit(cls, v):
+        return v or "件"
 
 class GoodsSerializedIn(BaseModel):
     # 核心字段（全部可选以便做“部分更新”；若你想强制某些字段必填可改为必填）
@@ -132,6 +140,54 @@ class _Patch:
     replace_materials: bool = True   # 默认 True：替换模式
 
 
+def _norm_str(x: Optional[str]) -> Optional[str]:
+    if x is None:
+        return None
+    s = str(x).strip()
+    return s if s else None
+
+
+
+async def _ensure_unique_on_update(
+    session: AsyncSession,
+    *,
+    current_goods_id: int,
+    sku: Optional[str],
+    asin: Optional[str],
+    barcode: str,
+) -> None:
+    """
+    预检测唯一性（排除当前 goods）。
+    - sku 唯一（你表上已有 uq_goods_sku）
+    - barcode 唯一（你表上已有 uq_goods_barcode）
+    - asin 若你也要求唯一，这里做预检测；建议 DB 也加 UniqueConstraint("asin") + 允许多 NULL
+    """
+    # SKU
+    if sku:
+        q = await session.execute(
+            select(Goods.id).where(Goods.sku == sku, Goods.id != current_goods_id)
+        )
+        if q.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=409, detail=f"SKU 已存在：{sku}")
+
+    # ASIN
+    if asin:
+        q = await session.execute(
+            select(Goods.id).where(Goods.asin == asin, Goods.id != current_goods_id)
+        )
+        if q.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=409, detail=f"ASIN 已存在：{asin}")
+
+    # BARCODE（路径参数是“当前条码”；如果你允许改条码，需要对“目标新条码”做检测）
+    # 这里按你的逻辑：以路径参数 barcode 为准，不允许 body.barcode 改；所以只做“数据库里是否有重复条码且不是当前 goods”
+    if barcode:
+        q = await session.execute(
+            select(Goods.id).where(Goods.barcode == barcode, Goods.id != current_goods_id)
+        )
+        if q.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=409, detail=f"条码已存在：{barcode}")
+
+
 @router.put("/by-barcode/{barcode}", summary="根据产品条码和 JSON 数据修改信息（按 serialize_goods 结构）")
 async def update_by_barcode_api(
     barcode: str,
@@ -139,16 +195,39 @@ async def update_by_barcode_api(
     session: AsyncSession = Depends(get_db),
     replace_materials: bool = Query(True, description="是否全量替换材料"),
 ):
+    barcode = _norm_str(barcode) or ""
+    if not barcode:
+        raise HTTPException(status_code=400, detail="条码不能为空")
+
+    # 先拿到当前商品（用于排除自己 + 如果不存在直接 404）
+    cur_res = await session.execute(select(Goods).where(Goods.barcode == barcode))
+    cur = cur_res.scalar_one_or_none()
+    if not cur:
+        raise HTTPException(status_code=404, detail="商品不存在")
+
+    # 规范化字段
+    sku = _norm_str(body.sku)
+    asin = _norm_str(body.asin)
+
+    # ✅ 唯一性预检测（sku/asin/barcode）
+    await _ensure_unique_on_update(
+        session,
+        current_goods_id=cur.id,
+        sku=sku,
+        asin=asin,
+        barcode=barcode,
+    )
+
     patch = _Patch(replace_materials=replace_materials)
 
-    # ---- 销售信息（把英文字段映射到仓储期望的中文字段名）----
+    # ---- 销售信息（英文字段映射到中文字段名）----
     if any([
-        body.sku, body.asin, body.product_name, body.category, body.subcategory, body.carton_mark, body.item_no,
+        sku, asin, body.product_name, body.category, body.subcategory, body.carton_mark, body.item_no,
         body.season, body.channel, body.owner, body.color, body.size, body.sale_price is not None
     ]):
         patch.销售信息 = NS(
-            SKU=body.sku,
-            ASIN=body.asin,
+            SKU=sku,
+            ASIN=asin,
             产品=body.product_name,
             大类目=body.category,
             小品类=body.subcategory,
@@ -158,12 +237,12 @@ async def update_by_barcode_api(
             颜色=body.color,
             尺寸=body.size,
             销售价=(Decimal(str(body.sale_price)) if body.sale_price is not None else None),
-            产品条码=barcode,           # 以路径参数为准
+            产品条码=barcode,  # ✅ 仍以路径参数为准
             自定义箱唛=body.carton_mark,
             货号=body.item_no,
         )
 
-    # ---- 供应信息（supply → 中文字段）----
+    # ---- 供应信息 ----
     if body.supply is not None:
         s = body.supply
         patch.供应信息 = NS(
@@ -177,7 +256,7 @@ async def update_by_barcode_api(
             外箱高=s.carton_h,
         )
 
-    # ---- 报关信息（customs → 中文字段）----
+    # ---- 报关信息 ----
     if body.customs is not None:
         c = body.customs
         patch.报关信息 = NS(
@@ -189,15 +268,24 @@ async def update_by_barcode_api(
             图片=c.image_note,
         )
 
-    # ---- 生产配套（materials 列表 → 传给仓储；仓储侧下节会兼容 list）----
+    # ---- 生产配套（materials：加 unit；不传默认 件）----
     if body.materials is not None:
-        patch.生产配套 = [{"name": m.name, "qty": Decimal(str(m.qty))} for m in body.materials]
+        patch.生产配套 = [
+            {
+                "name": _norm_str(m.name),
+                "qty": Decimal(str(m.qty)),
+                "unit": _norm_str(m.unit) or "件",
+            }
+            for m in body.materials
+            if _norm_str(m.name) is not None
+        ]
 
     g = await update_goods_by_barcode(session, barcode, patch)
     if not g:
+        # 理论上不会到这（上面已查 cur），留着兜底
         raise HTTPException(status_code=404, detail="商品不存在")
-    return serialize_goods(g)
 
+    return serialize_goods(g)
 
 
 #---------------------------------------------------------------------------------

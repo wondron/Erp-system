@@ -5,7 +5,7 @@ from enum import Enum
 # app/domain/models.py
 from pydantic import BaseModel, Field, RootModel
 from typing import Optional, Dict, Any, List
-
+from decimal import Decimal
 
 
 # @dataclass 是 Python 的一个装饰器，用于自动生成类的特殊方法（如 __init__, __repr__, __eq__ 等）。
@@ -26,7 +26,6 @@ class UserEntity:
     showname: str
     password_hash: str
     role: UserRole = UserRole.USER
-
 
 
 @dataclass(slots=True)
@@ -78,9 +77,14 @@ class CustomsInfoIn(BaseModel):
     申报要素: Optional[str] = None
     申报价: Optional[float] = None
     图片: Optional[str] = None
-
-class ProductionIn(RootModel[Dict[str, Any]]):
-    """按“材料X / 材料X用量”成对解析，v2 用 RootModel，值在 .root 里"""
+    
+class MaterialItemIn(BaseModel):
+    name: str = Field(..., description="材料名称")
+    qty: Decimal = Field(..., description="用量数值")
+    unit: Optional[str] = Field(None, description="用量单位，如 g / kg / 件 / m 等")
+    
+class ProductionIn(RootModel[List[MaterialItemIn]]):
+    """材料清单，值在 .root 里"""
     pass
 
 class GoodsIn(BaseModel):

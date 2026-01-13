@@ -2,10 +2,11 @@
 from __future__ import annotations
 import logging
 import math
-from decimal import Decimal
-from typing import Any, Dict, List, Optional, Literal, Sequence
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict, Tuple, Optional, Literal, Sequence, List
 from sqlalchemy import select, func, asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 import unicodedata
 from openpyxl import load_workbook
@@ -44,6 +45,7 @@ def _best_line_len(text: str) -> int:
     lines = text.splitlines() or [text]
     return max(_east_asian_len(line) for line in lines)
 
+
 def _autofit_columns_on_ws(ws, *, padding: float = 2.0, min_width: float = 8.0, max_width: float = 100.0,
                            wrap_long_text: bool = False) -> None:
     """
@@ -72,6 +74,7 @@ def _autofit_columns_on_ws(ws, *, padding: float = 2.0, min_width: float = 8.0, 
         # openpyxl 的 width 是近似“字符数”概念
         width = max(min_width, min(maxlen + padding, max_width))
         ws.column_dimensions[get_column_letter(col_idx)].width = width
+        
 
 def _apply_autofit_on_xlsx_bytes(data: bytes, *, sheet_name: str | None = None,
                                  **kwargs) -> bytes:
@@ -125,12 +128,17 @@ def serialize_goods(g: Goods) -> dict:
             "declared_price": float(g.customs.declared_price) if (g.customs and g.customs.declared_price is not None) else None,
             "image_note": g.customs.image_note if g.customs else None,
         },
-        "materials": [{"name": m.material_name, "qty": float(m.quantity)} for m in (g.materials or [])],
+        "materials": [
+            {"name": m.material_name, "qty": float(m.quantity), "unit": getattr(m, "unit", None) or "件"}
+            for m in (g.materials or [])
+        ],
     }
 
-
-
-
+def _to_num(x) -> Decimal:
+    try:
+        return Decimal(str(x).replace(",", "").strip())
+    except (InvalidOperation, ValueError):
+        return Decimal(str(float(x)))
 
 # ------------------------------ JSON 清洗 ------------------------------
 def _json_sanitize(obj: Any):
@@ -172,6 +180,62 @@ def _with_rels():
         selectinload(Goods.customs),
         selectinload(Goods.materials),
     )
+
+
+def _extract_material_items(p: Any) -> List[Tuple[str, Decimal, str]]:
+    root = getattr(p, "__root__", None)
+    if root is None:
+        root = getattr(p, "root", None)
+    if root is None:
+        root = p
+
+    out: List[Tuple[str, Decimal, str]] = []
+
+    if isinstance(root, list):
+        for item in root:
+            if isinstance(item, dict):
+                name = item.get("name", None)
+                if name is None:
+                    name = item.get("材料", None)
+
+                qty = item.get("qty", None)
+                if qty is None:
+                    qty = item.get("用量", None)
+
+                unit = item.get("unit", None) or item.get("用量单位", None) or item.get("单位", None)
+
+                if name is not None and qty is not None:
+                    out.append((str(name), _to_num(qty), str(unit).strip() if unit else "件"))
+            else:
+                name = getattr(item, "name", None)
+                qty  = getattr(item, "qty", None)
+                unit = getattr(item, "unit", None)
+                if name is not None and qty is not None:
+                    out.append((str(name), _to_num(qty), str(unit).strip() if unit else "件"))
+        return out
+
+    if isinstance(root, dict):
+        any_pair = False
+        for k, v in root.items():
+            ks = str(k)
+            if ks.startswith("材料") and not ks.endswith("用量") and not ks.endswith("用量单位"):
+                idx = ks.replace("材料", "")
+                qty  = root.get(f"材料{idx}用量")
+                unit = root.get(f"材料{idx}用量单位")
+                if v is not None and qty is not None:
+                    out.append((str(v), _to_num(qty), str(unit).strip() if unit else "件"))
+                    any_pair = True
+        if any_pair:
+            return out
+
+        name = root.get("name") or root.get("材料")
+        qty  = root.get("qty")  or root.get("用量")
+        unit = root.get("unit") or root.get("用量单位") or root.get("单位")
+        if name is not None and qty is not None:
+            out.append((str(name), _to_num(qty), str(unit).strip() if unit else "件"))
+        return out
+
+    return out
 
 
 # ------------------------------ 仓储 API ------------------------------
@@ -332,62 +396,16 @@ async def update_goods_by_barcode(session: AsyncSession, barcode: str, update_pa
     # ---------- 生产配套（材料） ----------
     prod = getattr(update_payload, "生产配套", None)
     replace_materials = getattr(update_payload, "replace_materials", True)
+    if prod is not None:
+        items = _extract_material_items(prod)
 
-    def _extract_material_pairs(p: Any) -> Dict[str, float]:
-        """
-        兼容多种输入：
-        1) RootModel: p.__root__ = list[{"name","qty"}] 或 dict(材料X/用量)
-        2) 对象有 root 属性
-        3) 直接传 list[{"name","qty"}]
-        4) 直接传 dict: {"材料1":"棉","材料1用量":1, ...}
-        """
-        # 1) 优先 RootModel.__root__
-        root = getattr(p, "__root__", None)
-        if root is None:
-            root = getattr(p, "root", None)
-        if root is None:
-            root = p
-
-        pairs: Dict[str, float] = {}
-
-        # list 形态
-        if isinstance(root, list):
-            for item in root:
-                if isinstance(item, dict):
-                    name = item.get("name") or item.get("材料")
-                    qty = item.get("qty") or item.get("用量")
-                    if name is not None and qty is not None:
-                        pairs[str(name)] = float(qty)
-            return pairs
-
-        # dict 形态：优先解析“材料X/材料X用量”
-        if isinstance(root, dict):
-            # 旧键值形态
-            for k, v in root.items():
-                ks = str(k)
-                if ks.startswith("材料") and not ks.endswith("用量"):
-                    idx = ks.replace("材料", "")
-                    qty = root.get(f"材料{idx}用量")
-                    if v is not None and qty is not None:
-                        pairs[str(v)] = float(qty)
-            # 若上面没解析出任何内容，再尝试通用键名
-            if not pairs:
-                name = root.get("name") or root.get("材料")
-                qty = root.get("qty") or root.get("用量")
-                if name is not None and qty is not None:
-                    pairs[str(name)] = float(qty)
-            return pairs
-
-        return pairs
-
-    if prod:
-        pairs = _extract_material_pairs(prod)
         if replace_materials:
             for m in list(g.materials or []):
                 await session.delete(m)
             g.materials = []
-        for name, qty in pairs.items():
-            g.materials.append(MaterialUsage(material_name=name, quantity=qty))
+
+        for name, qty, unit in items:
+            g.materials.append(MaterialUsage(material_name=name, quantity=qty, unit=unit))
 
     # ---------- flush ----------
     try:
@@ -400,22 +418,28 @@ async def update_goods_by_barcode(session: AsyncSession, barcode: str, update_pa
     return g
 
 
+
 async def create_goods(session: AsyncSession, data: GoodsIn) -> Goods:
     """
     新增商品：
-    - 先将 Pydantic 数据 model_dump(mode="python") 后做 _json_sanitize，再写入 goods_raw(JSONB)
-    - 再写入结构化表
-    - 不在此处 commit，交给 get_db()/get_session 统一提交
+    - 写 goods_raw(JSONB)
+    - 写结构化表 goods / supply / customs / materials
+    - 不 commit（交给 get_db 统一提交）
     """
+    s = data.销售信息
+
+    logger.info(
+        "create_goods: sku=%s, barcode=%s, asin=%s, product=%s",
+        s.SKU, s.产品条码, s.ASIN, s.产品
+    )
+
     # --- 原始 JSON（消毒后） ---
-    logger.info(f"create_goods: {data}")
     raw_payload = _json_sanitize(data.model_dump(mode="python"))
     raw = GoodsRaw(payload=raw_payload)
     session.add(raw)
-    await session.flush()
+    await session.flush()  # 得到 raw.id
 
-    # --- 结构化主表/子表 ---
-    s = data.销售信息
+    # --- 主表 ---
     g = Goods(
         sku=s.SKU,
         asin=s.ASIN,
@@ -433,53 +457,61 @@ async def create_goods(session: AsyncSession, data: GoodsIn) -> Goods:
         item_no=s.货号,
     )
     session.add(g)
-    await session.flush()     # 得到 goods.id
+
+    try:
+        await session.flush()  # ✅ 在这里触发唯一约束检查 + 得到 g.id
+    except IntegrityError as e:
+        logger.warning(
+            "create_goods 唯一性冲突：sku=%s, barcode=%s, asin=%s, err=%s",
+            s.SKU, s.产品条码, s.ASIN, str(e),
+            exc_info=True,
+        )
+        raise
 
     # 回填 raw.goods_id
     raw.goods_id = g.id
 
-    sup = data.供应信息
-    session.add(SupplyInfo(
-        goods_id=g.id,
-        vendor=sup.供应商,
-        purchase_price=sup.采购价,
-        pkg_size=sup.单品包装尺寸,
-        pkg_weight=sup.单品包装重量,
-        packing_ratio=sup.装箱系数,
-        carton_l=sup.外箱长,
-        carton_w=sup.外箱宽,
-        carton_h=sup.外箱高
-    ))
+    # --- 供应信息（可选） ---
+    sup = getattr(data, "供应信息", None)
+    if sup is not None:
+        session.add(SupplyInfo(
+            goods_id=g.id,
+            vendor=sup.供应商,
+            purchase_price=sup.采购价,
+            pkg_size=sup.单品包装尺寸,
+            pkg_weight=sup.单品包装重量,
+            packing_ratio=sup.装箱系数,
+            carton_l=sup.外箱长,
+            carton_w=sup.外箱宽,
+            carton_h=sup.外箱高,
+        ))
 
-    cs = data.报关信息
-    session.add(CustomsInfo(
-        goods_id=g.id,
-        name_cn=cs.中文品名,
-        name_en=cs.英文品名,
-        hscode=cs.海关编码,
-        declaration=cs.申报要素,
-        declared_price=cs.申报价,
-        image_note=cs.图片
-    ))
+    # --- 报关信息（可选） ---
+    cs = getattr(data, "报关信息", None)
+    if cs is not None:
+        session.add(CustomsInfo(
+            goods_id=g.id,
+            name_cn=cs.中文品名,
+            name_en=cs.英文品名,
+            hscode=cs.海关编码,
+            declaration=cs.申报要素,
+            declared_price=cs.申报价,
+            image_note=cs.图片,
+        ))
 
-    # 生产配套
-    prod = getattr(data.生产配套, "root", {}) or {}
-    pairs: dict[str, Any] = {}
-    for k, v in prod.items():
-        ks = str(k)
-        if ks.startswith("材料") and not ks.endswith("用量"):
-            idx = ks.replace("材料", "")
-            qty = prod.get(f"材料{idx}用量")
-            if v is not None and qty is not None:
-                pairs[str(v)] = qty
-
-    for name, qty in pairs.items():
-        session.add(MaterialUsage(goods_id=g.id, material_name=name, quantity=qty))
+    # --- 生产配套（可选） ---
+    prod = getattr(data, "生产配套", None)
+    for name, qty, unit in _extract_material_items(prod):
+        session.add(MaterialUsage(
+            goods_id=g.id,
+            material_name=name,
+            quantity=qty,
+            unit=unit or "件",
+        ))
 
     await session.flush()
     await session.refresh(g)
     return g
-
 
 async def get_goods_by_sku(session: AsyncSession, sku: str) -> Goods | None:
     res = await session.execute(select(Goods).where(Goods.sku == sku))
@@ -552,10 +584,6 @@ async def export_labels_pdf(
     buf = BytesIO(pdf_bytes)
     buf.seek(0)
     return buf
-
-
-
-
 
 
 # ------------------------------ 导出 Excel ------------------------------

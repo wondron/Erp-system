@@ -68,6 +68,7 @@ class Goods(Base):
     __table_args__ = (
         UniqueConstraint("sku", name="uq_goods_sku"),
         UniqueConstraint("barcode", name="uq_goods_barcode"),                     # ← 新增：条码唯一（Postgres 允许多 NULL）
+        UniqueConstraint("asin", name="uq_goods_asin"),   # ✅ 新增：ASIN 唯一（PG 允许多 NULL）
         CheckConstraint("sale_price IS NULL OR sale_price >= 0", name="ck_goods_sale_price_nonneg"),  # ← 新增：非负
         {"schema": "erp_product"}
     )
@@ -119,14 +120,16 @@ class CustomsInfo(Base):
 
 class MaterialUsage(Base):
     __tablename__ = "material_usage"
-    __table_args__ = {"schema": "erp_product"} 
-    
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     goods_id: Mapped[int] = mapped_column(ForeignKey("erp_product.goods.id", ondelete="CASCADE"), nullable=False)
-    
     material_name: Mapped[str] = mapped_column(String(128), nullable=False)             # 材料名称
     quantity: Mapped[Numeric] = mapped_column(Numeric(12,3), nullable=False)            # 材料用量
+    unit: Mapped[str] = mapped_column(String(32), nullable=False, server_default="件")
     goods: Mapped["Goods"] = relationship(back_populates="materials")
+    __table_args__ = (
+        CheckConstraint("quantity >= 0", name="ck_material_quantity_nonneg"),
+        {"schema": "erp_product"}
+    )
 
 
 # 原始 JSON 备份（审计用）

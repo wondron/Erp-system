@@ -2,15 +2,18 @@
 from __future__ import annotations
 import io
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.domain.models import GoodsIn, SalesInfoIn, SupplyInfoIn, CustomsInfoIn, ProductionIn
+from sqlalchemy import select
+from app.infrastructure.orm_models import Goods 
+from app.domain.models import GoodsIn, SalesInfoIn, SupplyInfoIn, CustomsInfoIn, ProductionIn, MaterialItemIn
 from app.infrastructure.repositories_goods import create_goods, get_goods_by_sku
+import logging
 
+logger = logging.getLogger('infra.goods_importer')
 
 def sniff_sheets(file_bytes: bytes) -> list[str]:
     xf = pd.ExcelFile(io.BytesIO(file_bytes), engine="openpyxl")
@@ -63,6 +66,19 @@ def _clean_header(name: Any) -> str:
     return str(name).strip()
 
 
+def _detect_material_mode(columns: list[str]) -> str:
+    """
+    返回:
+      - "with_unit": 存在任意 '材料1用量单位' 这类列 -> 三列模式
+      - "no_unit":   完全不存在 -> 两列模式
+    """
+    for i in range(1, 11):
+        if f"材料{i}用量单位" in columns:
+            return "with_unit"
+    return "no_unit"
+
+
+
 def _to_str(val) -> str | None:
     """文本统一清洗：空/NaN/'nan'/'none'/'null' -> None，其余去首尾空白。"""
     if pd.isna(val) or val == "":
@@ -73,12 +89,19 @@ def _to_str(val) -> str | None:
     return s
 
 
-def _to_decimal(val) -> Decimal | None:
-    if pd.isna(val) or val == "":
+def _to_decimal(val, *, field_name: str | None = None) -> Decimal | None:
+    if val is None or (hasattr(pd, "isna") and pd.isna(val)):
         return None
+    s = str(val).strip()
+    if s == "":
+        return None
+    # 去掉千分位
+    s = s.replace(",", "")
     try:
-        return Decimal(str(val))
-    except Exception:
+        return Decimal(s)
+    except (InvalidOperation, ValueError):
+        if field_name:
+            raise ValueError(f"{field_name} 数值不合法: {val}")
         return None
 
 
@@ -123,15 +146,61 @@ def _clean_id_string(val):
     return s
 
 
-def _row_to_goods_in(row: pd.Series) -> GoodsIn:
-    """将一行 DataFrame 转为入库的 Pydantic 对象（已清理 NaN/空值）"""
+def _normalize_unit(u: str) -> str:
+    u = u.strip()
+    mapping = {
+        "个": "件",
+        "pcs": "件",
+        "piece": "件",
+        "kg": "kg",
+        "g": "g",
+        "米": "m",
+        "m": "m",
+    }
+    return mapping.get(u.lower(), u)
 
+
+def _parse_materials_from_row(row, *, material_mode: str) -> list[MaterialItemIn]:
+    materials: list[MaterialItemIn] = []
+
+    for i in range(1, 11):
+        name = _to_str(row.get(f"材料{i}"))
+        qty  = _to_decimal(
+            row.get(f"材料{i}用量"),
+            field_name=f"材料{i}用量"
+        )
+        # ✅ 单位处理规则
+        if material_mode == "with_unit":
+            unit = _to_str(row.get(f"材料{i}用量单位")) or "件"
+            unit = _normalize_unit(unit)
+        else:
+            unit = "件"
+        # 整组为空 -> 跳过
+        if name is None and qty is None:
+            continue
+        # 不完整 -> 报错
+        if not name or qty is None:
+            raise ValueError(
+                f"材料{i} 信息不完整：需同时填写「材料{i}」与「材料{i}用量」"
+            )
+        materials.append(
+            MaterialItemIn(
+                name=name,
+                qty=qty,
+                unit=unit
+            )
+        )
+    return materials
+
+
+
+def _row_to_goods_in(row: pd.Series, material_mode: str) -> GoodsIn:
     # 销售信息
     sales_data: Dict[str, Any] = {}
     for xls, field in SALES_COLS.items():
         v = row.get(xls)
-        if field in ("销售价",):
-            sales_data[field] = _to_decimal(v)
+        if field in ("销售价", "销售价"):  # 这里按你的最终字段名二选一
+            sales_data[field] = _to_decimal(v, field_name=field)
         elif field in ("SKU", "ASIN", "产品条码", "自定义箱唛", "货号"):
             sales_data[field] = _clean_id_string(v)
         else:
@@ -144,7 +213,7 @@ def _row_to_goods_in(row: pd.Series) -> GoodsIn:
         if field in INT_SUPPLY_COLS:
             supply_data[field] = _to_int(v)
         elif field in ("采购价", "单品包装重量"):
-            supply_data[field] = _to_decimal(v)
+            supply_data[field] = _to_decimal(v, field_name=field)
         else:
             supply_data[field] = _to_str(v)
 
@@ -152,25 +221,18 @@ def _row_to_goods_in(row: pd.Series) -> GoodsIn:
     customs_data: Dict[str, Any] = {}
     for xls, field in CUSTOMS_COLS.items():
         v = row.get(xls)
-        customs_data[field] = _to_decimal(v) if field in ("申报价",) else _to_str(v)
+        customs_data[field] = _to_decimal(v, field_name=field) if field in ("申报价",) else _to_str(v)
 
-    # 生产配套：仅在清洗后非空才写入，避免 NaN 混入 JSON
-    prod_root: Dict[str, Any] = {}
-    for col in row.index:
-        c = str(col)
-        if not c.startswith("材料"):
-            continue
-        val = row[col]
-        cleaned = _to_decimal(val) if c.endswith("用量") else _to_str(val)
-        if cleaned is not None:
-            prod_root[c] = cleaned
+    # ✅ 生产配套：两列/三列自动兼容
+    materials = _parse_materials_from_row(row, material_mode=material_mode)
 
     return GoodsIn(
         销售信息=SalesInfoIn(**sales_data),
         供应信息=SupplyInfoIn(**supply_data),
         报关信息=CustomsInfoIn(**customs_data),
-        生产配套=ProductionIn(root=prod_root),  # pydantic v2 RootModel
+        生产配套=ProductionIn(materials),   # ✅ RootModel[List[...]]
     )
+
 
 
 async def import_excel_to_db(
@@ -180,10 +242,14 @@ async def import_excel_to_db(
     sheet_name: str | int | None = 0,
     upsert_by_sku: bool = True,
 ) -> Tuple[int, int, List[Dict[str, Any]]]:
-    # --- 先初始化，避免任意异常路径出现“未关联的局部变量” ---
     ok: int = 0
     skipped: int = 0
     errors: List[Dict[str, Any]] = []
+
+    logger.info(
+        "开始导入 Excel：sheet=%s, upsert_by_sku=%s, file_size=%d bytes",
+        sheet_name, upsert_by_sku, len(file_bytes),
+    )
 
     # --- 嗅探工作表，并做 sheet 参数合法性校验 ---
     sheet_names = sniff_sheets(file_bytes)
@@ -205,46 +271,154 @@ async def import_excel_to_db(
                 raise ValueError(f"未找到名为 '{s}' 的工作表；可用工作表：{sheet_names}")
             sheet_arg = s
 
-    # --- 读取 DataFrame：关键是 dtype=str，先全部当字符串读入 ---
+    # --- 读取 DataFrame：全部当字符串读入 ---
     df = pd.read_excel(
         io.BytesIO(file_bytes),
         sheet_name=sheet_arg,
         engine="openpyxl",
-        dtype=str,            # 防止把 SKU/条码/ASIN 读成数字或科学计数
-        keep_default_na=True, # 空单元格保持 NaN，后续统一清洗
+        dtype=str,
+        keep_default_na=True,
     )
 
     # 清洗表头
     df.rename(columns={c: _clean_header(c) for c in df.columns}, inplace=True)
+    material_mode = _detect_material_mode(list(df.columns))
 
-    # 清洗 ID 字段
+    # 清洗 ID 字段（SKU/ASIN/条码...）
     for col in ID_STR_COLS:
         if col in df.columns:
             df[col] = df[col].map(_clean_id_string)
 
     # 去掉空行（SKU 和 产品都空则跳过）
-    has_sku = "SKU" in df.columns
-    has_product = "产品" in df.columns
-    if has_sku and has_product:
+    if "SKU" in df.columns and "产品" in df.columns:
+        before = len(df)
         df = df[~(df.get("SKU").isna() & df.get("产品").isna())]
+        after = len(df)
+        if after != before:
+            logger.info("清理空行：before=%d, after=%d, removed=%d", before, after, before - after)
+
+    # =========================
+    # ✅ 批量预取：数据库中已存在的 SKU / barcode / ASIN
+    # =========================
+    sku_list: list[str] = []
+    barcode_list: list[str] = []
+    asin_list: list[str] = []
+
+    if "SKU" in df.columns:
+        sku_list = [s for s in df["SKU"].dropna().astype(str).map(str.strip).tolist() if s]
+        sku_list = list(dict.fromkeys(sku_list))  # 保序去重
+
+    if "产品条码" in df.columns:
+        barcode_list = [b for b in df["产品条码"].dropna().astype(str).map(str.strip).tolist() if b]
+        barcode_list = list(dict.fromkeys(barcode_list))
+
+    if "ASIN" in df.columns:
+        asin_list = [a for a in df["ASIN"].dropna().astype(str).map(str.strip).tolist() if a]
+        asin_list = list(dict.fromkeys(asin_list))
+
+    exist_skus: set[str] = set()
+    exist_barcodes: set[str] = set()
+    exist_asins: set[str] = set()
+
+    if upsert_by_sku and sku_list:
+        res = await session.execute(select(Goods.sku).where(Goods.sku.in_(sku_list)))
+        exist_skus = {r[0] for r in res.all() if r[0]}
+        logger.info("预取数据库已存在 SKU：%d / excel_sku=%d", len(exist_skus), len(sku_list))
+
+    if barcode_list:
+        res = await session.execute(select(Goods.barcode).where(Goods.barcode.in_(barcode_list)))
+        exist_barcodes = {r[0] for r in res.all() if r[0]}
+        logger.info("预取数据库已存在 条码：%d / excel_barcode=%d", len(exist_barcodes), len(barcode_list))
+
+    if asin_list:
+        res = await session.execute(select(Goods.asin).where(Goods.asin.in_(asin_list)))
+        exist_asins = {r[0] for r in res.all() if r[0]}
+        logger.info("预取数据库已存在 ASIN：%d / excel_asin=%d", len(exist_asins), len(asin_list))
+
+    # =========================
+    # ✅ Excel 内部去重（同文件重复也拦）
+    # =========================
+    seen_skus: set[str] = set()
+    seen_barcodes: set[str] = set()
+    seen_asins: set[str] = set()
 
     # --- 主循环 ---
-    for idx, row in df.iterrows():
-        try:
-            payload = _row_to_goods_in(row)
-            sku = payload.销售信息.SKU
+    total_rows = len(df)
+    logger.info("开始逐行导入：rows=%d, material_mode=%s", total_rows, material_mode)
 
-            if upsert_by_sku and sku:
-                exist = await get_goods_by_sku(session, sku)
-                if exist:
+    for idx, row in df.iterrows():
+        row_no = int(idx) + 2  # Excel 行号（含表头）
+        try:
+            payload = _row_to_goods_in(row, material_mode=material_mode)
+
+            sku = (payload.销售信息.SKU or "").strip()
+            barcode = (payload.销售信息.产品条码 or "").strip()
+            asin = (payload.销售信息.ASIN or "").strip()
+
+            # ---- 1) Excel 内部重复：SKU ----
+            if sku:
+                if sku in seen_skus:
                     skipped += 1
-                    errors.append({"row": int(idx) + 2, "error": f"已存在 SKU: {sku}"})
+                    errors.append({"row": row_no, "error": f"Excel 内重复 SKU: {sku}"})
                     continue
+                seen_skus.add(sku)
+
+            # ---- 2) Excel 内部重复：条码 ----
+            if barcode:
+                if barcode in seen_barcodes:
+                    skipped += 1
+                    errors.append({"row": row_no, "error": f"Excel 内重复 条码: {barcode}"})
+                    continue
+                seen_barcodes.add(barcode)
+
+            # ---- 3) Excel 内部重复：ASIN ----
+            if asin:
+                if asin in seen_asins:
+                    skipped += 1
+                    errors.append({"row": row_no, "error": f"Excel 内重复 ASIN: {asin}"})
+                    continue
+                seen_asins.add(asin)
+
+            # ---- 4) DB 已存在：SKU ----
+            if upsert_by_sku and sku and sku in exist_skus:
+                skipped += 1
+                errors.append({"row": row_no, "error": f"已存在 SKU: {sku}"})
+                continue
+
+            # ---- 5) DB 已存在：条码 ----
+            if barcode and barcode in exist_barcodes:
+                skipped += 1
+                errors.append({"row": row_no, "error": f"已存在 条码: {barcode}"})
+                continue
+
+            # ---- 6) DB 已存在：ASIN ----
+            if asin and asin in exist_asins:
+                skipped += 1
+                errors.append({"row": row_no, "error": f"已存在 ASIN: {asin}"})
+                continue
 
             await create_goods(session, payload)
             ok += 1
 
-        except Exception as e:
-            errors.append({"row": int(idx) + 2, "error": str(e)})
+            # ✅ 插入成功后把 key 放入 exist_*，防止后续行再次插入
+            if sku:
+                exist_skus.add(sku)
+            if barcode:
+                exist_barcodes.add(barcode)
+            if asin:
+                exist_asins.add(asin)
 
+            # 可选：每 N 行打一次进度
+            if ok % 200 == 0:
+                logger.info(
+                    "导入进度：ok=%d, skipped=%d, processed=%d/%d",
+                    ok, skipped, (row_no - 1), total_rows,
+                )
+
+        except Exception as e:
+            msg = str(e)
+            errors.append({"row": row_no, "error": msg})
+            logger.exception("导入失败 row=%d：%s", row_no, msg)
+
+    logger.info("导入完成：ok=%d, skipped=%d, errors=%d", ok, skipped, len(errors))
     return ok, skipped, errors
