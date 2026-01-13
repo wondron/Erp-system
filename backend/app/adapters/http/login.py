@@ -40,7 +40,7 @@ class AddUser(BaseModel):
     showname: str = Field(..., min_length=1, max_length=64)
     userrole: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=1, max_length=64)
-    comfirm: str = Field(..., min_length=1, max_length=64)
+    confirm: str = Field(..., min_length=1, max_length=64)
 
 class TokenPair(BaseModel):
     access_token: str
@@ -92,7 +92,7 @@ async def create_user(
     #     if not is_admin:
     #         raise HTTPException(status_code=403, detail="只有管理员才能创建用户")
     logger.info("创建用户: %s", body)
-    if body.password != body.comfirm:
+    if body.password != body.confirm:
         raise HTTPException(status_code=403, detail="两次输入的密码不一致")
 
     repo = LoginRepo(db)

@@ -31,3 +31,50 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL_YIBU: postgresql+asyncpg://kumori:123456@postgres:5432/erpdb
+      sqlalchemy_database_asyn_uri: postgresql+asyncpg://kumori:123456@postgres:5432/erpdb
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    command: >
+      bash -lc "
+      alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp-worker
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: /app
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./:/app
+    command: >
+      bash -lc "
+      rq worker -u redis://redis:6379/0 default --worker-class rq.SimpleWorker -P /app
+      "
+    restart: unless-stopped

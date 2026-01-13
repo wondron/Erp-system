@@ -25,7 +25,7 @@ alembic upgrade head
 ``` windows cmd
 cd backend
 set PYTHONPATH=%cd%
-set DATABASE_URL_YIBU=postgresql+asyncpg://kumori:123456@localhost:5432/erpdb
+set DATABASE_URL_YIBU=postgresql+asyncpg://kumori:123456@127.0.0.1:5432/erpdb
 set sqlalchemy_database_asyn_uri=%DATABASE_URL_YIBU%
 alembic upgrade head
 ```
@@ -171,3 +171,25 @@ docker compose -f docker-compose-prod.yml logs -f backend worker postgres
       "材料5用量": 1
     }
   }
+
+
+
+  ## 最新方法
+  1. 先验证能拉镜像（很关键）：
+      docker pull python:3.11-slim
+
+  2. Dockerfile（后端镜像）准备
+      FROM docker.m.daocloud.io/library/python:3.11-slim-bookworm
+
+  3. 构建镜像（最稳方式：关 BuildKit）
+      docker compose build --no-cache --progress plain
+
+  4. 启动
+      docker compose up -d
+      docker compose ps
+
+  5. 看日志排障（最常用）
+    docker compose logs -f backend
+    docker compose logs -f worker
+    docker compose logs -f postgres
+    docker exec -it erp-postgres psql -U kumori -d erpdb    # 数据库配置是否正确

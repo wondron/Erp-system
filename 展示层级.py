@@ -66,7 +66,7 @@ def tree(
 
 # ============ 示例 ============
 if __name__ == "__main__":
-    root = r"D:\01-code\01-java\FoodMaterialDetect\app\src\main\cpp"
+    root = r"D:\python\Erp-system\backend\app"
     # 文件名或路径里包含这些子串的文件会被隐藏（举例）
     exclude_files = {".pyc", ".log", 'img', 'hpp'}
     # 目录路径里包含这些子串的目录会整棵隐藏（举例）

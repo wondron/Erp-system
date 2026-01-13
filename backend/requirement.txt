@@ -26,5 +26,4 @@ openpyxl
 PyJWT
 opencv-python
 reportlab
-barcode
-python-barcode
+python-barcode==0.16.1
