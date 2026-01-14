@@ -49,19 +49,31 @@ async def get_all_goods(
     size: int = Query(50, ge=1, le=200, description="每页条数"),
     order_by: str = Query("id", description="排序字段名，例如 sku, asin, barcode, sale_price等"),
     order: str = Query("desc", pattern="^(asc|desc)$", description="排序顺序 asc 或 倒序 desc"),
+    barcode_contains: Optional[str] = Query(None, description="条形码包含（连续子串）"),
     session: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * size
+
     items, total = await list_goods_with_count(
-        session, offset=offset, limit=size, order_by=order_by, order=order
+        session,
+        offset=offset,
+        limit=size,
+        order_by=order_by,
+        order=order,
+        barcode_contains=barcode_contains,
     )
-    logger.info(f"获取商品列表 page={page}, size={size}, total={total}, order_by={order_by} {order}")
+
+    logger.info(
+        f"获取商品列表 page={page}, size={size}, total={total}, "
+        f"order_by={order_by} {order}, barcode_contains={barcode_contains}"
+    )
     return {
         "page": page,
         "size": size,
         "total": total,
         "order_by": order_by,
         "order": order,
+        "barcode_contains": barcode_contains,
         "items": [serialize_goods(g) for g in items],
     }
 

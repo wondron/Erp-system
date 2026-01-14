@@ -29,6 +29,11 @@ from app.infrastructure.services.goods_outporter import (
 logger = logging.getLogger('repo.goods')
 
 
+def _normalize_like_kw(s: str) -> str:
+    # LIKE 中 % 和 _ 有特殊含义，做一下转义更稳（避免用户输入带通配符导致“误扩大”）
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def export_goods_xlsx_all(
     session: AsyncSession,
     *,
@@ -263,35 +268,54 @@ def _extract_material_items(p: Any) -> List[Tuple[str, Decimal, str]]:
     return out
 
 
-# ------------------------------ 仓储 API ------------------------------
+# ----------------------------- 仓储 API ------------------------------
 async def list_goods_with_count(
     session: AsyncSession,
     *,
     offset: int = 0,
     limit: int = 100,
     order_by: str = "id",
-    order: str = "desc"
+    order: str = "desc",
+    barcode_contains: Optional[str] = None,
 ) -> tuple[list[Goods], int]:
-    """分页 + 总数 + 排序"""
+    """分页 + 总数 + 排序 + 条形码包含过滤（连续子串）"""
+
     # --- 安全地映射字段名，防止 SQL 注入 ---
     valid_columns = {c.name for c in Goods.__table__.columns}
     if order_by not in valid_columns:
         order_by = "id"
     order_func = desc if order.lower() == "desc" else asc
 
-    # --- 总数查询 ---
+    # --- 构造统一过滤条件（total 和 items 共用）---
+    where_clauses = []
+    if barcode_contains:
+        kw = _normalize_like_kw(barcode_contains.strip())
+        if kw:
+            # 连续子串：LIKE %kw%
+            # escape='\\' 对应上面的转义
+            where_clauses.append(Goods.barcode.like(f"%{kw}%", escape="\\"))
+
+    # --- 总数查询（带过滤）---
     total_stmt = select(func.count()).select_from(Goods)
+    for w in where_clauses:
+        total_stmt = total_stmt.where(w)
     total_res = await session.execute(total_stmt)
     total = total_res.scalar_one()
 
-    # --- 主查询 ---
+    # --- 主查询（带过滤）---
     stmt = (
         select(Goods)
         .options(*_with_rels())
-        .order_by(order_func(getattr(Goods, order_by)))
+    )
+    for w in where_clauses:
+        stmt = stmt.where(w)
+
+    stmt = (
+        stmt.order_by(order_func(getattr(Goods, order_by)))
         .offset(offset)
         .limit(limit)
     )
+
     res = await session.execute(stmt)
     items = res.scalars().unique().all()
     return items, total

@@ -187,9 +187,12 @@ docker compose -f docker-compose-prod.yml logs -f backend worker postgres
   4. 启动
       docker compose up -d
       docker compose ps
+      docker compose restart
 
   5. 看日志排障（最常用）
     docker compose logs -f backend
     docker compose logs -f worker
     docker compose logs -f postgres
     docker exec -it erp-postgres psql -U kumori -d erpdb    # 数据库配置是否正确
+
+    DROP TABLE IF EXISTS erp_product.material_usage CASCADE;   #清除数据
