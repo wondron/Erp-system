@@ -8,3 +8,4 @@ redis/
 process/
 .venv/
 *.pyo
+backup/*

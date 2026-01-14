@@ -233,25 +233,34 @@ def _row_to_goods_in(row: pd.Series, material_mode: str) -> GoodsIn:
         生产配套=ProductionIn(materials),   # ✅ RootModel[List[...]]
     )
 
-
-
 async def import_excel_to_db(
     session: AsyncSession,
     file_bytes: bytes,
     *,
     sheet_name: str | int | None = 0,
     upsert_by_sku: bool = True,
-) -> Tuple[int, int, List[Dict[str, Any]]]:
+) -> Dict[str, Any]:
+    """
+    方案B（不兼容旧 errors）：
+    - inserted: 成功插入数
+    - skipped:  跳过数（DB 已存在导致不插入）
+    - failed:   失败数（数据问题/异常导致不插入）
+    - total:    本次处理的总行数（清理空行后的 df 行数）
+    - skipped_items: 跳过明细
+    - failed_items:  失败明细
+    """
     ok: int = 0
-    skipped: int = 0
-    errors: List[Dict[str, Any]] = []
+    skipped_items: List[Dict[str, Any]] = []
+    failed_items: List[Dict[str, Any]] = []
 
     logger.info(
         "开始导入 Excel：sheet=%s, upsert_by_sku=%s, file_size=%d bytes",
         sheet_name, upsert_by_sku, len(file_bytes),
     )
 
-    # --- 嗅探工作表，并做 sheet 参数合法性校验 ---
+    # -------------------------
+    # 1) 校验 sheet 参数
+    # -------------------------
     sheet_names = sniff_sheets(file_bytes)
     if sheet_name is None:
         sheet_arg: str | int = 0
@@ -271,7 +280,9 @@ async def import_excel_to_db(
                 raise ValueError(f"未找到名为 '{s}' 的工作表；可用工作表：{sheet_names}")
             sheet_arg = s
 
-    # --- 读取 DataFrame：全部当字符串读入 ---
+    # -------------------------
+    # 2) 读取 DataFrame
+    # -------------------------
     df = pd.read_excel(
         io.BytesIO(file_bytes),
         sheet_name=sheet_arg,
@@ -280,16 +291,17 @@ async def import_excel_to_db(
         keep_default_na=True,
     )
 
-    # 清洗表头
     df.rename(columns={c: _clean_header(c) for c in df.columns}, inplace=True)
+
+    # 材料列模式（两列/三列）
     material_mode = _detect_material_mode(list(df.columns))
 
-    # 清洗 ID 字段（SKU/ASIN/条码...）
+    # 清洗 ID 字段
     for col in ID_STR_COLS:
         if col in df.columns:
             df[col] = df[col].map(_clean_id_string)
 
-    # 去掉空行（SKU 和 产品都空则跳过）
+    # 去掉空行（SKU 和 产品都空则去掉）
     if "SKU" in df.columns and "产品" in df.columns:
         before = len(df)
         df = df[~(df.get("SKU").isna() & df.get("产品").isna())]
@@ -297,16 +309,19 @@ async def import_excel_to_db(
         if after != before:
             logger.info("清理空行：before=%d, after=%d, removed=%d", before, after, before - after)
 
-    # =========================
-    # ✅ 批量预取：数据库中已存在的 SKU / barcode / ASIN
-    # =========================
+    # ✅ total（清理后的）
+    total = int(len(df))
+
+    # -------------------------
+    # 3) 预取数据库已存在 key
+    # -------------------------
     sku_list: list[str] = []
     barcode_list: list[str] = []
     asin_list: list[str] = []
 
     if "SKU" in df.columns:
         sku_list = [s for s in df["SKU"].dropna().astype(str).map(str.strip).tolist() if s]
-        sku_list = list(dict.fromkeys(sku_list))  # 保序去重
+        sku_list = list(dict.fromkeys(sku_list))
 
     if "产品条码" in df.columns:
         barcode_list = [b for b in df["产品条码"].dropna().astype(str).map(str.strip).tolist() if b]
@@ -335,17 +350,18 @@ async def import_excel_to_db(
         exist_asins = {r[0] for r in res.all() if r[0]}
         logger.info("预取数据库已存在 ASIN：%d / excel_asin=%d", len(exist_asins), len(asin_list))
 
-    # =========================
-    # ✅ Excel 内部去重（同文件重复也拦）
-    # =========================
+    # -------------------------
+    # 4) Excel 内部重复检测
+    # -------------------------
     seen_skus: set[str] = set()
     seen_barcodes: set[str] = set()
     seen_asins: set[str] = set()
 
-    # --- 主循环 ---
-    total_rows = len(df)
-    logger.info("开始逐行导入：rows=%d, material_mode=%s", total_rows, material_mode)
+    logger.info("开始逐行导入：rows=%d, material_mode=%s", total, material_mode)
 
+    # -------------------------
+    # 5) 主循环
+    # -------------------------
     for idx, row in df.iterrows():
         row_no = int(idx) + 2  # Excel 行号（含表头）
         try:
@@ -355,52 +371,43 @@ async def import_excel_to_db(
             barcode = (payload.销售信息.产品条码 or "").strip()
             asin = (payload.销售信息.ASIN or "").strip()
 
-            # ---- 1) Excel 内部重复：SKU ----
+            # Excel 内重复：归失败
+            if sku and sku in seen_skus:
+                failed_items.append({"row": row_no, "reason": "excel_duplicate_sku", "message": f"Excel 内重复 SKU: {sku}", "sku": sku})
+                continue
             if sku:
-                if sku in seen_skus:
-                    skipped += 1
-                    errors.append({"row": row_no, "error": f"Excel 内重复 SKU: {sku}"})
-                    continue
                 seen_skus.add(sku)
 
-            # ---- 2) Excel 内部重复：条码 ----
+            if barcode and barcode in seen_barcodes:
+                failed_items.append({"row": row_no, "reason": "excel_duplicate_barcode", "message": f"Excel 内重复 条码: {barcode}", "barcode": barcode})
+                continue
             if barcode:
-                if barcode in seen_barcodes:
-                    skipped += 1
-                    errors.append({"row": row_no, "error": f"Excel 内重复 条码: {barcode}"})
-                    continue
                 seen_barcodes.add(barcode)
 
-            # ---- 3) Excel 内部重复：ASIN ----
+            if asin and asin in seen_asins:
+                failed_items.append({"row": row_no, "reason": "excel_duplicate_asin", "message": f"Excel 内重复 ASIN: {asin}", "asin": asin})
+                continue
             if asin:
-                if asin in seen_asins:
-                    skipped += 1
-                    errors.append({"row": row_no, "error": f"Excel 内重复 ASIN: {asin}"})
-                    continue
                 seen_asins.add(asin)
 
-            # ---- 4) DB 已存在：SKU ----
+            # DB 已存在：归跳过
             if upsert_by_sku and sku and sku in exist_skus:
-                skipped += 1
-                errors.append({"row": row_no, "error": f"已存在 SKU: {sku}"})
+                skipped_items.append({"row": row_no, "reason": "db_exists_sku", "message": f"已存在 SKU: {sku}", "sku": sku})
                 continue
 
-            # ---- 5) DB 已存在：条码 ----
             if barcode and barcode in exist_barcodes:
-                skipped += 1
-                errors.append({"row": row_no, "error": f"已存在 条码: {barcode}"})
+                skipped_items.append({"row": row_no, "reason": "db_exists_barcode", "message": f"已存在 条码: {barcode}", "barcode": barcode})
                 continue
 
-            # ---- 6) DB 已存在：ASIN ----
             if asin and asin in exist_asins:
-                skipped += 1
-                errors.append({"row": row_no, "error": f"已存在 ASIN: {asin}"})
+                skipped_items.append({"row": row_no, "reason": "db_exists_asin", "message": f"已存在 ASIN: {asin}", "asin": asin})
                 continue
 
+            # 插入
             await create_goods(session, payload)
             ok += 1
 
-            # ✅ 插入成功后把 key 放入 exist_*，防止后续行再次插入
+            # 放入 exist_*，防止同批后续重复插入
             if sku:
                 exist_skus.add(sku)
             if barcode:
@@ -408,17 +415,24 @@ async def import_excel_to_db(
             if asin:
                 exist_asins.add(asin)
 
-            # 可选：每 N 行打一次进度
             if ok % 200 == 0:
-                logger.info(
-                    "导入进度：ok=%d, skipped=%d, processed=%d/%d",
-                    ok, skipped, (row_no - 1), total_rows,
-                )
+                logger.info("导入进度：ok=%d, skipped=%d, failed=%d", ok, len(skipped_items), len(failed_items))
 
         except Exception as e:
             msg = str(e)
-            errors.append({"row": row_no, "error": msg})
+            failed_items.append({"row": row_no, "reason": "exception", "message": msg})
             logger.exception("导入失败 row=%d：%s", row_no, msg)
 
-    logger.info("导入完成：ok=%d, skipped=%d, errors=%d", ok, skipped, len(errors))
-    return ok, skipped, errors
+    skipped = len(skipped_items)
+    failed = len(failed_items)
+
+    logger.info("导入完成：ok=%d, skipped=%d, failed=%d, total=%d", ok, skipped, failed, total)
+
+    return {
+        "inserted": ok,
+        "skipped": skipped,
+        "failed": failed,
+        "total": total,
+        "skipped_items": skipped_items,
+        "failed_items": failed_items,
+    }

@@ -8,6 +8,8 @@ from uuid import UUID
 from enum import Enum
 from openpyxl.styles import Font, Alignment, Border, Side
 import pandas as pd
+from app.infrastructure.orm_models import Goods
+
 
 # 参考 1111.xlsx (Sheet1) 的列顺序（首列选择框 + 销售/供应/报关 + 材料1..10及用量）
 ORDERED_COLUMNS: List[str] = [
@@ -19,16 +21,19 @@ ORDERED_COLUMNS: List[str] = [
     # 报关
     "中文品名", "英文品名", "海关编码", "申报要素", "申报价", "图片",
     # 材料（最多 1~10）
-    "材料1", "材料1用量", "材料2", "材料2用量", "材料3", "材料3用量",
-    "材料4", "材料4用量", "材料5", "材料5用量",
-    "材料6", "材料6用量", "材料7", "材料7用量",
-    "材料8", "材料8用量", "材料9", "材料9用量",
-    "材料10", "材料10用量",
+    "材料1", "材料1用量", "材料1用量单位",
+    "材料2", "材料2用量", "材料2用量单位",
+    "材料3", "材料3用量", "材料3用量单位",
+    "材料4", "材料4用量", "材料4用量单位",
+    "材料5", "材料5用量", "材料5用量单位",
+    "材料6", "材料6用量", "材料6用量单位",
+    "材料7", "材料7用量", "材料7用量单位",
+    "材料8", "材料8用量", "材料8用量单位",
+    "材料9", "材料9用量", "材料9用量单位",
+    "材料10", "材料10用量", "材料10用量单位",
 ]
 
 # 供路由调用的仓储方法
-from app.infrastructure.orm_models import Goods
-
 
 # -------------------- Excel 友好清洗 --------------------
 def _excel_sanitize_value(val: Any):
@@ -78,16 +83,22 @@ def _excel_sanitize_value(val: Any):
 
 def _get_material_pairs(g: Goods, max_pairs: int = 10) -> List[Tuple[str, Any]]:
     """
-    将 g.materials（name/qty）展开成 [(材料1, name1), (材料1用量, qty1), ...]。
+    将 g.materials（material_name/quantity/unit）展开成：
+    [(材料1, name1), (材料1用量, qty1), (材料1用量单位, unit1), ...]
     最多展开 max_pairs（默认 10）。
     """
     pairs: List[Tuple[str, Any]] = []
     mats = list(getattr(g, "materials", []) or [])
+
     for i, m in enumerate(mats[:max_pairs], start=1):
         name = _excel_sanitize_value(getattr(m, "material_name", None))
-        qty = _excel_sanitize_value(getattr(m, "quantity", None))
+        qty  = _excel_sanitize_value(getattr(m, "quantity", None))
+        unit = _excel_sanitize_value(getattr(m, "unit", None)) or "件"
+
         pairs.append((f"材料{i}", name))
         pairs.append((f"材料{i}用量", qty))
+        pairs.append((f"材料{i}用量单位", unit))
+
     return pairs
 
 

@@ -51,6 +51,7 @@ services:
       - "8000:8000"
     volumes:
       - ./:/app
+      - ../backup:/app/backup
     command: >
       bash -lc "
       alembic upgrade head &&

@@ -26,11 +26,13 @@ from app.infrastructure.repositories_goods import (
     delete_goods_by_barcode,
     delete_goods_by_barcodes,
     serialize_goods,
-    export_goods_xlsx_by_barcodes,  # ★ 新增：把查询结果导出成 Excel
+    export_goods_xlsx_by_barcodes, 
     export_carton_pdf,
     export_goods_pdf,
     export_labels_pdf,
     list_goods_with_count,
+    list_all_barcodes,
+    export_goods_xlsx_all,
 )
 
 # 如果你使用了“轻量 Update Schema”，记得从对应位置导入：
@@ -62,6 +64,13 @@ async def get_all_goods(
         "order": order,
         "items": [serialize_goods(g) for g in items],
     }
+
+@router.get("/barcodes", summary="获取所有商品条码列表")
+async def get_all_barcodes(
+    session: AsyncSession = Depends(get_db),
+):
+    barcodes = await list_all_barcodes(session)
+    return {"items": barcodes, "total": len(barcodes)}
 
 
 # ------------------------------ 2) 根据产品条码列表查询 ------------------------------
@@ -139,14 +148,11 @@ class _Patch:
     生产配套: object | None = None
     replace_materials: bool = True   # 默认 True：替换模式
 
-
 def _norm_str(x: Optional[str]) -> Optional[str]:
     if x is None:
         return None
     s = str(x).strip()
     return s if s else None
-
-
 
 async def _ensure_unique_on_update(
     session: AsyncSession,
@@ -187,7 +193,6 @@ async def _ensure_unique_on_update(
         if q.scalar_one_or_none() is not None:
             raise HTTPException(status_code=409, detail=f"条码已存在：{barcode}")
 
-
 @router.put("/by-barcode/{barcode}", summary="根据产品条码和 JSON 数据修改信息（按 serialize_goods 结构）")
 async def update_by_barcode_api(
     barcode: str,
@@ -199,6 +204,8 @@ async def update_by_barcode_api(
     if not barcode:
         raise HTTPException(status_code=400, detail="条码不能为空")
 
+    logger.info("更新商品信息：条码=%s，数据=%s", barcode, body)
+    
     # 先拿到当前商品（用于排除自己 + 如果不存在直接 404）
     cur_res = await session.execute(select(Goods).where(Goods.barcode == barcode))
     cur = cur_res.scalar_one_or_none()
@@ -287,7 +294,6 @@ async def update_by_barcode_api(
 
     return serialize_goods(g)
 
-
 #---------------------------------------------------------------------------------
 @router.get("/download_template", summary="下载商品导入模板")
 async def download_template():
@@ -310,10 +316,29 @@ async def delete_by_barcode_api(
     barcode: str,
     session: AsyncSession = Depends(get_db),
 ):
+    logger.info("收到删除请求（单条），barcode=%s", barcode)
+
+    try:
+        backup_path = await _backup_all_goods_before_delete(
+            session, prefix="goods_delete"
+        )
+    except Exception:
+        logger.exception("删除前备份失败，已中止删除，barcode=%s", barcode)
+        raise HTTPException(status_code=500, detail="删除前备份失败，操作已中止")
+
+    logger.info("开始执行删除（单条），barcode=%s", barcode)
     ok = await delete_goods_by_barcode(session, barcode)
+
     if not ok:
+        logger.warning("删除失败（商品不存在），barcode=%s", barcode)
         raise HTTPException(status_code=404, detail="商品不存在")
-    return {"deleted": True, "barcode": barcode}
+
+    logger.info(
+        "删除成功（单条），barcode=%s，backup=%s",
+        barcode, backup_path
+    )
+    return {"deleted": True, "barcode": barcode, "backup": backup_path}
+
 
 
 @router.delete("/by-barcodes", summary="根据产品条码列表批量删除")
@@ -321,12 +346,70 @@ async def delete_by_barcodes_api(
     payload: BarcodesIn,
     session: AsyncSession = Depends(get_db),
 ):
-    """
-    请求体:
-    { "barcodes": ["810101409417", "6901234567890"] }
-    """
-    result = await delete_goods_by_barcodes(session, payload.barcodes)
+    barcodes = payload.barcodes or []
+    logger.info(
+        "收到删除请求（批量），count=%d",
+        len(barcodes)
+    )
+
+    try:
+        backup_path = await _backup_all_goods_before_delete(
+            session, prefix="goods_delete"
+        )
+    except Exception:
+        logger.exception("批量删除前备份失败，已中止删除")
+        raise HTTPException(status_code=500, detail="删除前备份失败，操作已中止")
+
+    logger.info("开始执行删除（批量），count=%d", len(barcodes))
+    result = await delete_goods_by_barcodes(session, barcodes)
+
+    logger.info(
+        "批量删除完成，deleted=%d，not_found=%d，backup=%s",
+        result.get("count", 0),
+        len(result.get("not_found", [])),
+        backup_path,
+    )
+
+    result["backup"] = backup_path
     return result
+
+
+def _backup_dir() -> Path:
+    # goods_query.py: backend/app/adapters/http/goods_query.py
+    # parents[3] -> backend
+    base_dir = Path(__file__).resolve().parents[3]
+    d = base_dir / "backup"
+    if not d.exists():
+        d.mkdir(parents=True, exist_ok=True)
+        logger.info("创建备份目录：%s", d)
+    return d
+
+async def _backup_all_goods_before_delete(session: AsyncSession, *, prefix: str) -> str:
+    logger.info("开始执行删除前全量备份，prefix=%s", prefix)
+
+    stream = await export_goods_xlsx_all(session, sheet_name="Sheet1")
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{prefix}_{ts}.xlsx"
+    save_path = _backup_dir() / filename
+
+    stream.seek(0)
+    with open(save_path, "wb") as f:
+        f.write(stream.read())
+
+    logger.info("删除前全量备份完成，文件=%s", save_path)
+    return str(save_path)
+
+
+async def _backup_all_goods_before_delete(session: AsyncSession, *, prefix: str) -> str:
+    stream = await export_goods_xlsx_all(session, sheet_name="Sheet1")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{prefix}_{ts}.xlsx"
+    save_path = _backup_dir() / filename
+    stream.seek(0)
+    with open(save_path, "wb") as f:
+        f.write(stream.read())
+    return str(save_path)
 
 
 # ------------------------------ 5) 根据条码导出 Excel ------------------------------
@@ -335,6 +418,7 @@ async def export_goods_by_barcodes_api(
     payload: BarcodesIn,
     session: AsyncSession = Depends(get_db),
 ):
+    logger.info(f'调用export_goods_by_barcodes_api，条码集合:{payload.barcodes}')
     stream = await export_goods_xlsx_by_barcodes(session, payload.barcodes, sheet_name="Sheet1")
     ts = datetime.now().strftime("%y%m%d%H%M")   # 时间戳，形如 20250915_112530
     filename = f"productinfo_{ts}.xlsx"

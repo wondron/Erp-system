@@ -29,6 +29,31 @@ from app.infrastructure.services.goods_outporter import (
 logger = logging.getLogger('repo.goods')
 
 
+async def export_goods_xlsx_all(
+    session: AsyncSession,
+    *,
+    sheet_name: str = "Sheet1",
+) -> BytesIO:
+    """
+    全量导出当前所有商品为 xlsx（含 rels）。
+    注意：数据量很大时会占内存；一般 ERP 商品量可接受。
+    """
+    stmt = select(Goods).options(*_with_rels()).order_by(asc(Goods.id))
+    res = await session.execute(stmt)
+    goods_list = res.scalars().unique().all()
+
+    base_data: bytes = export_from_goods_list(goods_list, sheet_name=sheet_name)
+    tuned: bytes = _apply_autofit_on_xlsx_bytes(
+        base_data,
+        sheet_name=sheet_name,
+        padding=2.0,
+        min_width=8.0,
+        max_width=100.0,
+        wrap_long_text=False,
+    )
+    return BytesIO(tuned)
+
+
 # === 自动适配列宽工具 ===
 def _east_asian_len(s: str) -> int:
     """按 East Asian Width 估算显示宽度：全角(W/F)=2，其他=1。"""
@@ -326,6 +351,24 @@ async def delete_goods_by_barcodes(session: AsyncSession, barcodes: Sequence[str
     deleted = [b for b in uniq if b in found_set]
     not_found = [b for b in uniq if b not in found_set]
     return {"deleted": deleted, "not_found": not_found, "count": len(deleted)}
+
+
+async def list_all_barcodes(session: AsyncSession) -> list[str]:
+    """
+    获取所有商品的条码列表（去重、去空、按条码升序）。
+    返回：["barcode1", "barcode2", ...]
+    """
+    stmt = (
+        select(Goods.barcode)
+        .where(Goods.barcode.isnot(None))
+        .where(Goods.barcode != "")
+        .distinct()
+        .order_by(asc(Goods.barcode))
+    )
+    res = await session.execute(stmt)
+    # res.scalars().all() -> list[str | None]
+    barcodes = [b for b in res.scalars().all() if b]
+    return barcodes
 
 
 async def delete_goods_by_barcode(session: AsyncSession, barcode: str) -> bool:
