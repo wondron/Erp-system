@@ -207,7 +207,7 @@ class ExcelASNBuilder:
 if __name__ == "__main__":
     # 示例1：仍然可以从磁盘读 Excel，再得到 xlsx 二进制（用于本地测试）
     # 注意：这里的 ExcelReader 需要是你“二进制输入版”的实现
-    with open('/data/Erp-system/backend/app/app_tasks/resource/template.xlsx', 'rb') as f:
+    with open('/data/Erp-system/backend/app/app_tasks/resource/customs_template.xlsx', 'rb') as f:
         blob = f.read()
     reader = ExcelReader(blob)  # 传入 bytes
     data_dicts = reader.read_as_dicts()

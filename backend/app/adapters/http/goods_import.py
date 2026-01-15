@@ -58,7 +58,7 @@ async def import_goods(
         raise HTTPException(status_code=400, detail="仅支持 .xlsx 文件")
 
     content = await file.read()
-    logger.info("Excel 文件读取完成：size=%d bytes", len(content))
+    # logger.info("Excel 文件读取完成：size=%d bytes", len(content))
 
     try:
         sheet_arg = _normalize_sheet_arg(sheet)

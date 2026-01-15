@@ -12,7 +12,7 @@ logger = logging.getLogger('报关资料5')
 
 
 class BaoGuanBuilder():
-    def __init__(self, sourcepath= "./app/app_tasks/resource/baoguan.xlsx"):
+    def __init__(self, sourcepath= "./app/app_tasks/resource/customs_gen5file_template.xlsx"):
         self.title = 'baoguan'
         self.wb = load_workbook(sourcepath)
         self.ws = self.wb.active
@@ -59,7 +59,7 @@ class BaoGuanBuilder():
         for key, value in itemInfo.items():
             a, b, c = key
             showName = f' {startIdex:02d}  {a}'
-            logger.info(showName)
+            # logger.info(showName)
             if c == '':
                 c = '有问题！！！！'
 
@@ -194,7 +194,7 @@ class BaoGuanBuilder():
 
 if __name__ == '__main__':
     save_path = '5-报关资料样板.xlsx'
-    fp = r"app/app_tasks/resource/example.xlsx"
+    fp = r"app/app_tasks/resource/customs_example.xlsx"
     with open(fp, "rb") as f:
         blob = f.read()
     reader = ExcelReader(blob)

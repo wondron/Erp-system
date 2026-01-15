@@ -129,7 +129,7 @@ def status(task_id: str):
 @router.get("/get-template", summary="下载模板文件")
 def download_template():
     logger.info("📥 [下载模板接口] 开始处理")
-    filename = "template.xlsx"
+    filename = "customs_template.xlsx"
     template_path = Path(__file__).resolve().parents[2] / "app_tasks" / "resource" / filename
 
     logger.info("📥 [下载模板] 请求进入, path=%s", template_path)

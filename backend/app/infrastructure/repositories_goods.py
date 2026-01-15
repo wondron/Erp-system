@@ -624,6 +624,7 @@ async def export_carton_pdf(session: AsyncSession, barcode: str) -> BytesIO:
     return buf
 
 
+
 async def export_labels_pdf(
     session: AsyncSession,
     items: Dict[str, int],
@@ -631,23 +632,47 @@ async def export_labels_pdf(
 ) -> BytesIO:
     barcode_items = []
     logger.info(f'调用export_labels_pdf，items:{items}, type:{label_type}')
+
+    missing: list[str] = []
+
     if label_type == 'barcode':
-        for barcode, count in items.items():
-            goods_list = await get_goods_by_barcodes(session, [barcode])
+        for code, count in items.items():
+            goods_list = await get_goods_by_barcodes(session, [code])
+            if not goods_list:
+                missing.append(code)
+                continue
+
             g = goods_list[0]
             info = LabelRow(g.color or "", g.size or "", g.barcode or "")
             logger.info(f'条码信息：{info}')
             barcode_items.extend([info] * count)
+
+        if missing:
+            raise HTTPException(status_code=404, detail=f"以下条码未找到商品：{', '.join(missing)}")
+
         pdf_bytes = build_barcode_pdf(barcode_items, False)
+
     elif label_type == 'carton_mark':
-        for barcode, count in items.items():
-            goods_list = await get_goods_by_barcodes(session, [barcode])
+        for code, count in items.items():
+            # ✅ 按你说的：仍然按条码查
+            goods_list = await get_goods_by_barcodes(session, [code])
+            if not goods_list:
+                missing.append(code)
+                continue
+
             g = goods_list[0]
             info = xLabelRow(g.carton_mark or "", g.color or "", g.size or "", g.barcode or "")
             logger.info(f'箱唛信息：{info}')
             barcode_items.extend([info] * count)
+
+        if missing:
+            raise HTTPException(status_code=404, detail=f"以下条码未找到商品：{', '.join(missing)}")
+
         pdf_bytes = build_carton_mark_pdf(barcode_items, False)
-    
+
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的 label_type: {label_type}")
+
     buf = BytesIO(pdf_bytes)
     buf.seek(0)
     return buf

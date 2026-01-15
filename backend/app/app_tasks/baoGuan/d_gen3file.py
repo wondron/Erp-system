@@ -234,7 +234,7 @@ class ZhuangXiangBuilder:
 if __name__ == "__main__":
     # ✅ 从项目根目录 backend 运行模块方式：
     # python -m app.app_tasks.baoGuan.d_gen3file
-    fp = r"app/app_tasks/resource/example.xlsx"
+    fp = r"app/app_tasks/resource/customs_example.xlsx"
 
     # 方式1：文件路径
     # reader = ExcelReader(fp)
@@ -250,7 +250,7 @@ if __name__ == "__main__":
     xlsx_bytes = builder.detect(
         data_dicts,
         data_dicts[0].get("预约号", ""),
-        gongzhang_source=r"app/app_tasks/resource/gonzhang.png",  # 也可传 bytes/BytesIO
+        gongzhang_source=r"app/app_tasks/resource/customs_gonzhang.png",  # 也可传 bytes/BytesIO
     )
 
     with open("3-装箱单样板.xlsx", "wb") as f:

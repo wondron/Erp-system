@@ -58,7 +58,7 @@ class ExcelReader:
 # 使用示例（以二进制为输入）
 if __name__ == "__main__":
     # 假设你还是从磁盘读，但只为得到 bytes；在真实场景可来自网络/内存等
-    with open('/data/Erp-system/backend/app/app_tasks/resource/template.xlsx', 'rb') as f:
+    with open('/data/Erp-system/backend/app/app_tasks/resource/customs_template.xlsx', 'rb') as f:
         blob = f.read()
 
     reader = ExcelReader(blob)

@@ -23,23 +23,11 @@ logger.setLevel(logging.INFO)
 
 
 def _handle_excel_with_baoguan(raw: bytes) -> bytes:
-    """
-    输入：Excel 原始二进制
-    输出：包含 5 个报关资料 xlsx 的 zip 二进制
-    """
-    logger.info("进入 _handle_excel_with_baoguan")
-    logger.info(f"原始 Excel 大小: {len(raw)} bytes")
-
     # 1) 解析 Excel 数据
     reader = ExcelReader(raw)
     data_dicts = reader.read_as_dicts()
     hetong_no = data_dicts[0].get("预约号", "") if data_dicts else ""
     logger.info(f"解析完成，共 {len(data_dicts)} 行数据")
-    if data_dicts:
-        preview = {k: data_dicts[0].get(k) for k in list(data_dicts[0].keys())[:5]}
-        logger.info(f"首行预览: {preview}")
-    logger.info(f"预约号: {hetong_no}")
-
     # 2) 构建 5 个 xlsx 二进制
     outputs: list[tuple[str, bytes]] = []
 
@@ -47,7 +35,7 @@ def _handle_excel_with_baoguan(raw: bytes) -> bytes:
         t0 = time.perf_counter()
         blob = func()
         dt = time.perf_counter() - t0
-        logger.info(f"生成 {label} 完成, 大小 {len(blob)} bytes, 用时 {dt:.2f}s")
+        # logger.info(f"生成 {label} 完成, 大小 {len(blob)} bytes, 用时 {dt:.2f}s")
         return blob
 
     # ASN
@@ -59,26 +47,26 @@ def _handle_excel_with_baoguan(raw: bytes) -> bytes:
     fapiao_bytes = _timeit("报关资料2-发票.xlsx",
                            lambda: FaPiaoBuilder().detect(
                                data_dicts, hetong_no,
-                               gongzhang_source="app/app_tasks/resource/gonzhang.png"))
+                               gongzhang_source="app/app_tasks/resource/customs_gonzhang.png"))
     outputs.append(("报关资料2-发票.xlsx", fapiao_bytes))
 
     # 装箱单
     zhuang_bytes = _timeit("报关资料3-装箱单.xlsx",
                            lambda: ZhuangXiangBuilder().detect(
                                data_dicts, hetong_no,
-                               gongzhang_source="app/app_tasks/resource/gonzhang.png"))
+                               gongzhang_source="app/app_tasks/resource/customs_gonzhang.png"))
     outputs.append(("报关资料3-装箱单.xlsx", zhuang_bytes))
 
     # 合同
     hetong_bytes = _timeit("报关资料4-合同.xlsx",
                            lambda: HeTongBuilder().detect(
                                data_dicts, hetong_no,
-                               gongzhang_path="app/app_tasks/resource/gonzhang.png"))
+                               gongzhang_path="app/app_tasks/resource/customs_gonzhang.png"))
     outputs.append(("报关资料4-合同.xlsx", hetong_bytes))
 
     # 出口报关单
     baoguan_bytes = _timeit("报关资料5-出口报关单.xlsx",
-                            lambda: BaoGuanBuilder("app/app_tasks/resource/baoguan.xlsx").detect(data_dicts))
+                            lambda: BaoGuanBuilder("app/app_tasks/resource/customs_gen5file_template.xlsx").detect(data_dicts))
     outputs.append(("报关资料5-出口报关单.xlsx", baoguan_bytes))
 
     # 3) 打包成 zip
@@ -86,7 +74,6 @@ def _handle_excel_with_baoguan(raw: bytes) -> bytes:
     with zipfile.ZipFile(bio, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for fname, blob in outputs:
             zf.writestr(fname, blob)
-            logger.info(f"写入 zip: {fname}, 大小 {len(blob)} bytes")
 
     zip_bytes = bio.getvalue()
     logger.info(f"ZIP 打包完成，总大小 {len(zip_bytes)} bytes, 共 {len(outputs)} 个文件")
@@ -95,7 +82,7 @@ def _handle_excel_with_baoguan(raw: bytes) -> bytes:
 
 
 if __name__ == '__main__':
-    xlsx_path = '/data/Erp-system/backend/app/app_tasks/resource/template.xlsx'
+    xlsx_path = '/data/Erp-system/backend/app/app_tasks/resource/customs_template.xlsx'
 
     # 1) 读入 Excel 文件的二进制
     with open(xlsx_path, "rb") as f:

@@ -259,14 +259,14 @@ class HeTongBuilder:
 
 if __name__ == "__main__":
     # 示例：本地调试时依然可以把返回的 bytes 写到磁盘看看效果
-    fp = r"app/app_tasks/resource/example.xlsx"
+    fp = r"app/app_tasks/resource/customs_example.xlsx"
     with open(fp, "rb") as f:
         blob = f.read()
     reader = ExcelReader(blob)
     data_dicts = reader.read_as_dicts()
     
     builder = HeTongBuilder()
-    xlsx_bytes = builder.detect(data_dicts, data_dicts[0]['预约号'], gongzhang_path="app/app_tasks/resource/gonzhang.png")
+    xlsx_bytes = builder.detect(data_dicts, data_dicts[0]['预约号'], gongzhang_path="app/app_tasks/resource/customs_gonzhang.png")
 
     with open('4-合同样板.xlsx', 'wb') as f:
         f.write(xlsx_bytes)

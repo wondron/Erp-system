@@ -225,7 +225,7 @@ if __name__ == "__main__":
     # python -m app.app_tasks.baoGuan.c_gen2file
     # 下面示例：既支持“文件路径”，也支持“bytes”读入。
     # 1) 文件路径
-    fp = r"app/app_tasks/resource/example.xlsx"
+    fp = r"app/app_tasks/resource/customs_example.xlsx"
     with open(fp, "rb") as f:
         blob = f.read()
     reader = ExcelReader(blob)  # 传 bytes
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     xlsx_bytes = builder.detect(
         data_dicts,
         data_dicts[0].get("预约号", ""),
-        gongzhang_source=r"app/app_tasks/resource/gonzhang.png",  # 也可传入 bytes/BytesIO
+        gongzhang_source=r"app/app_tasks/resource/customs_gonzhang.png",  # 也可传入 bytes/BytesIO
     )
 
     with open("2-报关资料样板.xlsx", "wb") as f:

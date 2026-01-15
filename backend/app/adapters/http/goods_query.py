@@ -14,11 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dataclasses import dataclass
 from sqlalchemy import select
 from app.infrastructure.orm_models import Goods
-
-# 异步会话依赖
 from app.infrastructure.db import get_db
-
-# 仓储函数
 from app.infrastructure.repositories_goods import (
     list_goods,
     get_goods_by_barcodes,
@@ -34,11 +30,7 @@ from app.infrastructure.repositories_goods import (
     list_all_barcodes,
     export_goods_xlsx_all,
 )
-
-# 如果你使用了“轻量 Update Schema”，记得从对应位置导入：
-# from app.domain.models_update import GoodsUpdate
-from app.domain.models import GoodsIn  # 也可以用你已存在的 Update 版 Schema
-
+from app.domain.models import GoodsIn 
 router = APIRouter(prefix="/goods", tags=["goods"])
 logger = logging.getLogger('repo.goods')
 
@@ -53,7 +45,6 @@ async def get_all_goods(
     session: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * size
-
     items, total = await list_goods_with_count(
         session,
         offset=offset,
@@ -99,7 +90,6 @@ async def goods_by_barcodes(
     return [serialize_goods(g) for g in rows]
 
 
-# ------------------------------ 3) 根据产品条码更新 ------------------------------
 class SupplyBlock(BaseModel):
     vendor: Optional[str] = None
     purchase_price: Optional[float] = None
@@ -122,7 +112,6 @@ class MaterialItem(BaseModel):
     name: str = Field(..., description="材料名称")
     qty: Decimal = Field(..., description="用量")
     unit: Optional[str] = Field(None, description="用量单位；不传默认=件")
-
     @field_validator("unit", mode="before")
     @classmethod
     def default_unit(cls, v):
@@ -145,8 +134,6 @@ class GoodsSerializedIn(BaseModel):
     color: Optional[str] = None
     size: Optional[str] = None
     sale_price: Optional[float] = None
-
-    # 嵌套块
     supply: Optional[SupplyBlock] = None
     customs: Optional[CustomsBlock] = None
     materials: Optional[List[MaterialItem]] = None
@@ -310,7 +297,7 @@ async def update_by_barcode_api(
 @router.get("/download_template", summary="下载商品导入模板")
 async def download_template():
     BASE_DIR = Path(__file__).resolve().parents[2]   # backend/app
-    TEMPLATE_PATH = BASE_DIR / "app_tasks" / "resource" / "product_temp.xlsx"
+    TEMPLATE_PATH = BASE_DIR / "app_tasks" / "resource" / "product_template.xlsx"
     if not TEMPLATE_PATH.exists():
         raise HTTPException(status_code=404, detail="模板文件不存在")
 
@@ -443,7 +430,8 @@ async def export_goods_by_barcodes_api(
         },
     )
     
-    
+
+# ----------------  导出PDF  ---------------------------------
 @router.post("/export/product-label", summary="根据条码导出产品贴 PDF")
 async def export_product_label(
     barcode: str,
@@ -483,7 +471,7 @@ async def export_carton_mark(
 # ------------------------------ 6) 根据条码和数量打印PDF ------------------------------
 class ExportNum(BaseModel): 
     name: str = Field(..., description="要打印的条码或箱唛") 
-    qty: int = Field(..., gt=0, description="数量(>0)") 
+    qty: int = Field(..., ge=-1, description="数量(>0)") 
 
 class DayinData(BaseModel): 
     materials: Optional[List[ExportNum]] = None 
