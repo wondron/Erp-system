@@ -1,27 +1,25 @@
 # app/infrastructure/repositories_goods.py
 from __future__ import annotations
-import logging
-import math
+import logging, math, unicodedata
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Tuple, Optional, Literal, Sequence, List
-from sqlalchemy import select, func, asc, desc
+from sqlalchemy import select, func, asc, desc, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql import ColumnElement
+from sqlalchemy.sql.expression import nulls_last
 from sqlalchemy.orm import selectinload
-import unicodedata
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment  # 如需自动换行可用
 from app.domain.models import GoodsIn
 from app.infrastructure.orm_models import Goods, SupplyInfo, CustomsInfo, MaterialUsage, GoodsRaw
-from sqlalchemy.exc import IntegrityError
 from dataclasses import dataclass
-
 from app.app_tasks.barcode_task.gen_barcode import build_barcode_pdf, LabelRow
 from app.app_tasks.barcode_task.gen_xiangmai import build_carton_mark_pdf, xLabelRow
 from fastapi import HTTPException
-# === 新增：使用模板导出服务（pandas + openpyxl 由 goods_outporter 负责） ===
 from io import BytesIO
+from app.adapters.http.goods_types import GoodsSearchField
 from app.infrastructure.services.goods_outporter import (
     export_from_goods_list,   # (goods_list -> bytes)
 )
@@ -269,6 +267,94 @@ def _extract_material_items(p: Any) -> List[Tuple[str, Decimal, str]]:
 
 
 # ----------------------------- 仓储 API ------------------------------
+_GOODS_SEARCH_COL_MAP = {
+    "sku": Goods.sku,
+    "asin": Goods.asin,
+    "barcode": Goods.barcode,
+    "category": Goods.category,
+    "subcategory": Goods.subcategory,
+    "season": Goods.season,
+    "product_name": Goods.product_name,
+    "channel": Goods.channel,
+    "owner": Goods.owner,
+    "carton_mark": Goods.carton_mark,
+    "item_no": Goods.item_no,
+    "color": Goods.color,
+    "size": Goods.size,
+
+    # Goods 自己的价格（如果 sale_price 在 Goods 表）
+    "sale_price": cast(Goods.sale_price, String),
+}
+
+# 供应信息来自 SupplyInfo（一对一）
+_SUPPLY_SEARCH_COL_MAP = {
+    "vendor": SupplyInfo.vendor,
+    "purchase_price": cast(SupplyInfo.purchase_price, String),
+}
+
+# 哪些字段需要 join supply
+_NEED_SUPPLY_JOIN = set(_SUPPLY_SEARCH_COL_MAP.keys())
+
+_GOODS_ORDER_COL_MAP = {
+    "id": Goods.id,
+    "sku": Goods.sku,
+    "asin": Goods.asin,
+    "barcode": Goods.barcode,
+    "product_name": Goods.product_name,
+    "color": Goods.color,
+    "size": Goods.size,
+    "sale_price": Goods.sale_price,
+    "category": Goods.category,
+    "subcategory": Goods.subcategory,
+    "season": Goods.season,
+    "channel": Goods.channel,
+    "owner": Goods.owner,
+    "carton_mark": Goods.carton_mark,
+    "item_no": Goods.item_no,
+}
+
+_SUPPLY_ORDER_COL_MAP = {
+    "vendor": func.lower(SupplyInfo.vendor),
+    "purchase_price": SupplyInfo.purchase_price,
+}
+
+_NEED_SUPPLY_JOIN_FOR_ORDER = set(_SUPPLY_ORDER_COL_MAP.keys())
+
+def _build_contains_filter(field: GoodsSearchField, keyword: Optional[str]) -> Optional[ColumnElement[bool]]:
+    """keyword 为空则返回 None（不筛选）"""
+    if not keyword:
+        return None
+
+    kw = _normalize_like_kw(keyword.strip())
+    if not kw:
+        return None
+
+    col = _GOODS_SEARCH_COL_MAP.get(field) or _SUPPLY_SEARCH_COL_MAP.get(field)
+    if col is None:
+        return None
+
+    return col.ilike(f"%{kw}%", escape="\\")
+
+def _resolve_order_col(order_by: str) -> tuple[ColumnElement, bool]:
+    """
+    返回： (order_col, need_supply_join)
+    - order_col: 用于 order_by 的 SQLAlchemy 列
+    - need_supply_join: 是否需要 join SupplyInfo
+    """
+    if order_by in _GOODS_ORDER_COL_MAP:
+        return _GOODS_ORDER_COL_MAP[order_by], False
+    if order_by in _SUPPLY_ORDER_COL_MAP:
+        return _SUPPLY_ORDER_COL_MAP[order_by], True
+    # 默认兜底
+    return Goods.id, False
+
+
+def _apply_ordering(stmt, *, order_col: ColumnElement, order: str):
+    """统一排序，且 NULL 放最后（更符合业务直觉）"""
+    order_func = desc if (order or "").lower() == "desc" else asc
+    return stmt.order_by(nulls_last(order_func(order_col)))
+
+
 async def list_goods_with_count(
     session: AsyncSession,
     *,
@@ -276,49 +362,55 @@ async def list_goods_with_count(
     limit: int = 100,
     order_by: str = "id",
     order: str = "desc",
-    barcode_contains: Optional[str] = None,
-) -> tuple[list[Goods], int]:
-    """分页 + 总数 + 排序 + 条形码包含过滤（连续子串）"""
+    field: GoodsSearchField = "barcode",
+    keyword: Optional[str] = None,
+) -> Tuple[List[Goods], int]:
+    """分页 + 总数 + 排序 + 按 field contains 搜索（keyword 空则不筛）"""
 
-    # --- 安全地映射字段名，防止 SQL 注入 ---
-    valid_columns = {c.name for c in Goods.__table__.columns}
-    if order_by not in valid_columns:
-        order_by = "id"
-    order_func = desc if order.lower() == "desc" else asc
+    # 1) 过滤条件（search）
+    where_clauses: list[ColumnElement[bool]] = []
+    cond = _build_contains_filter(field, keyword)
+    if cond is not None:
+        where_clauses.append(cond)
 
-    # --- 构造统一过滤条件（total 和 items 共用）---
-    where_clauses = []
-    if barcode_contains:
-        kw = _normalize_like_kw(barcode_contains.strip())
-        if kw:
-            # 连续子串：LIKE %kw%
-            # escape='\\' 对应上面的转义
-            where_clauses.append(Goods.barcode.like(f"%{kw}%", escape="\\"))
+    # 2) 解析排序列 + 是否需要 join supply（order）
+    order_col, need_supply_for_order = _resolve_order_col(order_by)
 
-    # --- 总数查询（带过滤）---
-    total_stmt = select(func.count()).select_from(Goods)
+    # 3) 是否需要 join supply（search）
+    need_supply_for_search = field in _NEED_SUPPLY_JOIN
+
+    # 4) 统一决定：什么时候 join supply
+    need_supply = need_supply_for_search or need_supply_for_order
+
+    # ---------------- count ----------------
+    # ✅ count 不要 options，但需要时要 join，且用 count(Goods.id) 防止 join 造成重复行
+    total_stmt = select(func.count(func.distinct(Goods.id))).select_from(Goods)
+    if need_supply:
+        total_stmt = total_stmt.outerjoin(SupplyInfo, SupplyInfo.goods_id == Goods.id)
+
     for w in where_clauses:
         total_stmt = total_stmt.where(w)
-    total_res = await session.execute(total_stmt)
-    total = total_res.scalar_one()
 
-    # --- 主查询（带过滤）---
-    stmt = (
-        select(Goods)
-        .options(*_with_rels())
-    )
+    total = (await session.execute(total_stmt)).scalar_one()
+
+    # ---------------- items ----------------
+    stmt = select(Goods).options(*_with_rels()).select_from(Goods)
+    if need_supply:
+        stmt = stmt.outerjoin(SupplyInfo, SupplyInfo.goods_id == Goods.id)
+
     for w in where_clauses:
         stmt = stmt.where(w)
 
-    stmt = (
-        stmt.order_by(order_func(getattr(Goods, order_by)))
-        .offset(offset)
-        .limit(limit)
-    )
+    # ✅ 排序：支持 Goods / SupplyInfo；NULL 放最后
+    stmt = _apply_ordering(stmt, order_col=order_col, order=order)
+
+    stmt = stmt.offset(offset).limit(limit)
 
     res = await session.execute(stmt)
     items = res.scalars().unique().all()
     return items, total
+
+
 
 
 async def list_goods(session: AsyncSession, *, offset: int = 0, limit: int = 100) -> list[Goods]:
@@ -483,6 +575,7 @@ async def update_goods_by_barcode(session: AsyncSession, barcode: str, update_pa
         raise
 
     return g
+
 
 
 

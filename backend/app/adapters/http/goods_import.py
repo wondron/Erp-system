@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
 
 from app.infrastructure.db import get_db
-from app.infrastructure.services.goods_importer import import_excel_to_db, sniff_sheets
+from app.infrastructure.services.goods_importer import import_excel_to_db, sniff_sheets, batch_update_excel_to_db
 
 logger = logging.getLogger('api.goods_import')
 router = APIRouter(prefix="/goods", tags=["goods"])
@@ -85,6 +85,64 @@ async def import_goods(
     except Exception as e:
         logger.error(
             "商品导入异常：filename=%s, sheet=%s, error=%s",
+            file.filename, sheet, str(e),
+            exc_info=True,
+        )
+        try:
+            sheets = sniff_sheets(content)
+            raise HTTPException(status_code=400, detail=f"{e}；可用工作表：{sheets}")
+        except Exception:
+            raise HTTPException(status_code=400, detail=str(e))
+
+
+class BatchUpdateGoodsResp(BaseModel):
+    filename: str
+    updated: int
+    skipped: int
+    failed: int
+    total: int
+    skipped_items: List[ImportRowItem] = Field(default_factory=list)
+    failed_items: List[ImportRowItem] = Field(default_factory=list)
+
+@router.post("/batch-update", summary="从Excel批量修改商品数据", response_model=BatchUpdateGoodsResp)
+async def batch_update_goods(
+    file: UploadFile = File(..., description="Excel 文件（.xlsx）"),
+    sheet: str | int | None = Query(default=0, description="工作表名或索引，默认第1个"),
+    session: AsyncSession = Depends(get_db),
+):
+    logger.info("收到商品批量修改请求：filename=%s, sheet=%s", file.filename, sheet)
+
+    if not file.filename.lower().endswith(".xlsx"):
+        logger.warning("批量修改失败：文件类型不支持 (%s)", file.filename)
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx 文件")
+
+    content = await file.read()
+
+    try:
+        sheet_arg = _normalize_sheet_arg(sheet)
+
+        result = await batch_update_excel_to_db(
+            session,
+            content,
+            sheet_name=sheet_arg,
+        )
+
+        logger.info(
+            "商品批量修改完成：filename=%s, updated=%d, skipped=%d, failed=%d, total=%d",
+            file.filename,
+            int(result.get("updated", 0) or 0),
+            int(result.get("skipped", 0) or 0),
+            int(result.get("failed", 0) or 0),
+            int(result.get("total", 0) or 0),
+        )
+        return {
+            "filename": file.filename,
+            **result,
+        }
+
+    except Exception as e:
+        logger.error(
+            "商品批量修改异常：filename=%s, sheet=%s, error=%s",
             file.filename, sheet, str(e),
             exc_info=True,
         )

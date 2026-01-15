@@ -31,8 +31,10 @@ from app.infrastructure.repositories_goods import (
     export_goods_xlsx_all,
 )
 from app.domain.models import GoodsIn 
+from app.adapters.http.goods_types import GoodsSearchField
+
 router = APIRouter(prefix="/goods", tags=["goods"])
-logger = logging.getLogger('repo.goods')
+logger = logging.getLogger('http.goods')
 
 # ------------------------------ 1) 获取所有商品（分页） ------------------------------
 @router.get("", summary="获取所有商品信息（分页+排序+总数）")
@@ -40,31 +42,37 @@ async def get_all_goods(
     page: int = Query(1, ge=1, description="页码，从1开始"),
     size: int = Query(50, ge=1, le=200, description="每页条数"),
     order_by: str = Query("id", description="排序字段名，例如 sku, asin, barcode, sale_price等"),
-    order: str = Query("desc", pattern="^(asc|desc)$", description="排序顺序 asc 或 倒序 desc"),
-    barcode_contains: Optional[str] = Query(None, description="条形码包含（连续子串）"),
+    order: str = Query("desc", pattern="^(asc|desc)$", description="排序顺序 asc 或 desc"),
+
+    # ✅ 最终版：前端保存的搜索类型 + 关键词
+    field: GoodsSearchField = Query("barcode", description="搜索字段"),
+    keyword: Optional[str] = Query(None, description="搜索关键词（contains）"),
+
     session: AsyncSession = Depends(get_db),
 ):
+    # 统一清洗：空字符串当作 None（不筛）
+    keyword = (keyword or "").strip() or None
+
     offset = (page - 1) * size
+
     items, total = await list_goods_with_count(
         session,
         offset=offset,
         limit=size,
         order_by=order_by,
         order=order,
-        barcode_contains=barcode_contains,
+        field=field,
+        keyword=keyword,
     )
 
-    logger.info(
-        f"获取商品列表 page={page}, size={size}, total={total}, "
-        f"order_by={order_by} {order}, barcode_contains={barcode_contains}"
-    )
     return {
         "page": page,
         "size": size,
         "total": total,
         "order_by": order_by,
         "order": order,
-        "barcode_contains": barcode_contains,
+        "field": field,
+        "keyword": keyword,
         "items": [serialize_goods(g) for g in items],
     }
 
